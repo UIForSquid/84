@@ -15,6 +15,7 @@ final class MindMapPanel extends JPanel {
     // ---- model ----
     static final class Node {
         int id; String label; String color; double x, y; Integer parent; String notes = "";
+        java.util.List<String> list = new java.util.ArrayList<>();   // per-node datalist items
     }
 
     private final List<Node> nodes = new ArrayList<>();
@@ -196,6 +197,9 @@ final class MindMapPanel extends JPanel {
         wikiContent.add(wikiNotes);
         wikiContent.add(Box.createVerticalStrut(22));
 
+        wikiContent.add(buildNodeDatalist(n));
+        wikiContent.add(Box.createVerticalStrut(22));
+
         List<Node> kids = childrenOf(n.id);
         JLabel h = new JLabel("LINKED NODES (" + kids.size() + ")");
         h.setFont(Theme.HEAD); h.setForeground(Theme.CYAN); h.setAlignmentX(LEFT_ALIGNMENT);
@@ -216,6 +220,83 @@ final class MindMapPanel extends JPanel {
         wikiContent.add(Box.createVerticalGlue());
         wikiContent.revalidate();
         wikiContent.repaint();
+    }
+
+    /** A per-node ordered Datalist (numbered items, add/edit/reorder/remove) on the wiki page. */
+    private JComponent buildNodeDatalist(Node n) {
+        JPanel box = new JPanel();
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+        box.setBackground(Theme.VOID);
+        box.setAlignmentX(LEFT_ALIGNMENT);
+        box.setMaximumSize(new Dimension(920, Integer.MAX_VALUE));
+
+        JLabel h = new JLabel("DATALIST (" + n.list.size() + ")");
+        h.setFont(Theme.HEAD); h.setForeground(Theme.CYAN); h.setAlignmentX(LEFT_ALIGNMENT);
+        h.setBorder(new EmptyBorder(0, 0, 8, 0));
+        box.add(h);
+
+        for (int i = 0; i < n.list.size(); i++) {
+            final int idx = i;
+            JPanel row = new JPanel(new BorderLayout(8, 0));
+            row.setBackground(Theme.VOID);
+            row.setAlignmentX(LEFT_ALIGNMENT);
+            row.setMaximumSize(new Dimension(880, 34));
+
+            JLabel num = new JLabel((i + 1) + ".");
+            num.setFont(Theme.MONO); num.setForeground(Theme.AMBER);
+            num.setBorder(new EmptyBorder(0, 2, 0, 6));
+
+            JTextField tf = new JTextField(n.list.get(idx));
+            tf.setFont(Theme.MONO); tf.setForeground(Theme.INK);
+            tf.setBackground(new Color(0x0c051e)); tf.setCaretColor(Theme.LIME);
+            tf.setBorder(new CompoundBorder(new LineBorder(Theme.LINE), new EmptyBorder(5, 8, 5, 8)));
+            Runnable commit = () -> { if (idx < n.list.size()) { n.list.set(idx, tf.getText()); scheduleSave(); } };
+            tf.addActionListener(e -> commit.run());
+            tf.addFocusListener(new FocusAdapter() { public void focusLost(FocusEvent e) { commit.run(); } });
+
+            JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
+            btns.setOpaque(false);
+            JButton up = listOpBtn("↑"); up.addActionListener(e -> { if (idx > 0) { java.util.Collections.swap(n.list, idx, idx - 1); scheduleSave(); buildWikiContent(n); } });
+            JButton dn = listOpBtn("↓"); dn.addActionListener(e -> { if (idx < n.list.size() - 1) { java.util.Collections.swap(n.list, idx, idx + 1); scheduleSave(); buildWikiContent(n); } });
+            JButton rm = listOpBtn("✕"); rm.addActionListener(e -> { n.list.remove(idx); scheduleSave(); buildWikiContent(n); });
+            btns.add(up); btns.add(dn); btns.add(rm);
+
+            row.add(num, BorderLayout.WEST);
+            row.add(tf, BorderLayout.CENTER);
+            row.add(btns, BorderLayout.EAST);
+            box.add(row);
+            box.add(Box.createVerticalStrut(5));
+        }
+
+        // add-item row
+        JPanel addRow = new JPanel(new BorderLayout(8, 0));
+        addRow.setBackground(Theme.VOID);
+        addRow.setAlignmentX(LEFT_ALIGNMENT);
+        addRow.setMaximumSize(new Dimension(880, 34));
+        JTextField add = new JTextField();
+        add.setFont(Theme.MONO); add.setForeground(Theme.LIME);
+        add.setBackground(new Color(0x060212)); add.setCaretColor(Theme.LIME);
+        add.setBorder(new CompoundBorder(new LineBorder(Theme.LINE), new EmptyBorder(5, 8, 5, 8)));
+        JButton addBtn = Theme.button("+ Add item", Theme.MAGENTA, false);
+        Runnable doAdd = () -> { String t = add.getText().trim(); if (!t.isEmpty()) { n.list.add(t); scheduleSave(); buildWikiContent(n); } };
+        add.addActionListener(e -> doAdd.run());
+        addBtn.addActionListener(e -> doAdd.run());
+        addRow.add(add, BorderLayout.CENTER);
+        addRow.add(addBtn, BorderLayout.EAST);
+        box.add(addRow);
+
+        return box;
+    }
+
+    private JButton listOpBtn(String text) {
+        JButton b = new JButton(text);
+        b.setFont(Theme.MONO);
+        b.setForeground(Theme.INK);
+        b.setBackground(new Color(0x1a0d38));
+        b.setBorder(new EmptyBorder(2, 9, 2, 9));
+        b.setFocusPainted(false);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return b;
     }
 
     private JComponent wikiLink(final Node n) {
@@ -807,6 +888,7 @@ final class MindMapPanel extends JPanel {
             m.put("y", n.y);
             m.put("parent", n.parent);
             m.put("notes", n.notes == null ? "" : n.notes);
+            m.put("list", new ArrayList<Object>(n.list));
             arr.add(m);
         }
         root.put("nodes", arr);
@@ -838,6 +920,8 @@ final class MindMapPanel extends JPanel {
                 n.parent = (par instanceof Number) ? ((Number) par).intValue() : null;
                 n.notes = Json.asStr(m.get("notes"));
                 if (n.notes == null) n.notes = "";
+                List<Object> li = Json.asList(m.get("list"));
+                if (li != null) for (Object it : li) { String sv = Json.asStr(it); if (sv != null) n.list.add(sv); }
                 nodes.add(n);
                 maxId = Math.max(maxId, n.id);
             }
