@@ -8,7 +8,6 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.List;
-import java.util.zip.*;
 import javax.swing.*;
 
 /**
@@ -136,45 +135,32 @@ final class Updater {
         return dest;
     }
 
-    /** Extract a zip and return the app-image root inside it (folder holding the exe). */
-    static Path extract(Path zip, Path destDir) throws IOException {
-        Files.createDirectories(destDir);
-        try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(Files.newInputStream(zip)))) {
-            ZipEntry e;
-            while ((e = zis.getNextEntry()) != null) {
-                Path out = destDir.resolve(e.getName()).normalize();
-                if (!out.startsWith(destDir)) throw new IOException("Bad zip entry: " + e.getName()); // zip-slip guard
-                if (e.isDirectory()) { Files.createDirectories(out); }
-                else {
-                    Files.createDirectories(out.getParent());
-                    Files.copy(zis, out, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-        }
-        // find the folder that contains the exe (usually destDir/MINDMAP84)
-        Path exe = findExe(destDir);
-        return exe != null ? exe.getParent() : destDir;
-    }
-    private static Path findExe(Path dir) throws IOException {
-        try (java.util.stream.Stream<Path> s = Files.walk(dir, 3)) {
-            return s.filter(p -> p.getFileName().toString().equalsIgnoreCase(Config.EXE_NAME)).findFirst().orElse(null);
-        }
-    }
-
     /**
-     * Writes a detached .bat that (after this JVM exits) copies stagedAppDir over
-     * installDir and relaunches the app, then starts it and quits.
+     * Writes a detached .bat that (after this JVM exits) extracts the downloaded zip
+     * and copies the new app over installDir, then relaunches. Extraction + copy are
+     * done by Windows' own tools (tar, then Expand-Archive fallback, then robocopy) so
+     * the bundled JDK runtime tree — hard-linked legal files and all — is handled
+     * correctly, unlike a hand-rolled Java unzip.
      */
-    static void applyAndRelaunch(Path stagedAppDir, Path installDir) throws IOException {
+    static void applyAndRelaunch(Path zip, Path installDir) throws IOException {
+        Path work = zip.getParent();
+        Path stage = work.resolve("stage");
+        Path stagedApp = stage.resolve(Config.APP_NAME);
+        Path exe = installDir.resolve(Config.EXE_NAME);
         Path bat = Files.createTempFile("mindmap84-update", ".bat");
-        String script = "@echo off\r\n"
+        String s = "@echo off\r\n"
                 + "chcp 65001 >nul\r\n"
                 + "timeout /t 2 /nobreak >nul\r\n"
-                + "robocopy \"" + stagedAppDir + "\" \"" + installDir + "\" /E /IS /IT /R:3 /W:1 >nul\r\n"
-                + "start \"\" \"" + installDir.resolve(Config.EXE_NAME) + "\"\r\n"
-                + "rmdir /s /q \"" + stagedAppDir.getParent() + "\" >nul 2>&1\r\n"
+                + "mkdir \"" + stage + "\" 2>nul\r\n"
+                + "tar -xf \"" + zip + "\" -C \"" + stage + "\" 2>nul\r\n"
+                + "if not exist \"" + stagedApp.resolve(Config.EXE_NAME) + "\" "
+                +   "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+                +   "\"Expand-Archive -LiteralPath '" + zip + "' -DestinationPath '" + stage + "' -Force\"\r\n"
+                + "robocopy \"" + stagedApp + "\" \"" + installDir + "\" /E /IS /IT /R:3 /W:1 >nul\r\n"
+                + "start \"\" \"" + exe + "\"\r\n"
+                + "rmdir /s /q \"" + work + "\" >nul 2>&1\r\n"
                 + "del \"%~f0\"\r\n";
-        Files.write(bat, script.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Files.write(bat, s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         // launch detached in its own minimized window so it survives our exit
         new ProcessBuilder("cmd", "/c", "start", "", "/min", bat.toString())
                 .redirectOutput(ProcessBuilder.Redirect.DISCARD)
@@ -235,8 +221,7 @@ final class Updater {
                 Path work = Files.createTempDirectory("mindmap84-update");
                 Path zip = work.resolve(Config.ASSET_NAME);
                 downloadZip(r, zip);
-                Path stagedApp = extract(zip, work.resolve("unpacked"));
-                applyAndRelaunch(stagedApp, installDir()); // calls System.exit on success
+                applyAndRelaunch(zip, installDir()); // calls System.exit on success
                 return null;
             }
             protected void done() {
@@ -264,8 +249,7 @@ final class Updater {
             Path work = Files.createTempDirectory("mindmap84-update");
             Path zip = work.resolve(Config.ASSET_NAME);
             downloadZip(r, zip);
-            Path stagedApp = extract(zip, work.resolve("unpacked"));
-            applyAndRelaunch(stagedApp, installDir());
+            applyAndRelaunch(zip, installDir());
             return true;
         } catch (Exception e) {
             System.out.println("Update failed: " + rootMsg(e));
