@@ -42,5 +42,4 @@ release + auto-update setup.
 
 ## Repo layout
 
-- `desktop/` — the Java/Swing desktop app (the current product).
-- `MINDMAP-84/` — the original web (HTML/JS/CSS) version, kept for reference.
+- `desktop/` — the Java/Swing desktop app (source, build scripts, packaging).

@@ -8,11 +8,7 @@ desktop/MINDMAP84-windows/**
 # ---- Release artifacts (uploaded as GitHub Release assets, not committed) ----
 *.zip
 
-# ---- Node / web ----
-node_modules/
-
 # ---- User data (never commit personal saved maps/lists) ----
-MINDMAP-84/data/
 .mindmap84/
 
 # ---- Misc ----
