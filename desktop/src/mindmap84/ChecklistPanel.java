@@ -76,7 +76,7 @@ final class ChecklistPanel extends JPanel {
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
         row.setBackground(Theme.VOID);
         row.setAlignmentX(LEFT_ALIGNMENT);
-        JButton gen = Theme.button("▸ Generate", Theme.MAGENTA, true);
+        JButton gen = Theme.button("Generate", Theme.MAGENTA, true);
         JButton add = Theme.button("+ Add", Theme.CYAN, false);
         JButton purge = Theme.button("Purge", Theme.CYAN, false);
         gen.addActionListener(e -> { groups.clear(); groups.addAll(parse(input.getText())); render(); });
@@ -103,7 +103,7 @@ final class ChecklistPanel extends JPanel {
         count.setFont(Theme.HEAD);
         count.setForeground(Theme.AMBER);
         meta.add(count);
-        JButton save = Theme.button("● Save", Theme.CYAN, false);
+        JButton save = Theme.button("Save", Theme.CYAN, false);
         JButton loadB = Theme.button("Load", Theme.CYAN, false);
         JButton expand = Theme.button("Expand", Theme.CYAN, false);
         JButton collapse = Theme.button("Collapse", Theme.CYAN, false);
@@ -178,7 +178,7 @@ final class ChecklistPanel extends JPanel {
     private void render() {
         body.removeAll();
         if (groups.isEmpty()) {
-            JLabel empty = new JLabel("● No Data Loaded ●");
+            JLabel empty = new JLabel("No Data Loaded");
             empty.setForeground(Theme.MUTED);
             empty.setFont(Theme.MONO);
             empty.setBorder(new EmptyBorder(22, 12, 22, 12));
@@ -201,7 +201,7 @@ final class ChecklistPanel extends JPanel {
             head.setBackground(new Color(0x1a0d38));
             head.setBorder(new EmptyBorder(9, 12, 9, 12));
             head.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            JLabel name = new JLabel((g.collapsed ? "▸ " : "▾ ") + g.name.toUpperCase());
+            JLabel name = new JLabel((g.collapsed ? "[+] " : "[-] ") + g.name.toUpperCase());
             name.setFont(Theme.HEAD);
             name.setForeground(Color.WHITE);
             JLabel gcount = new JLabel(done + " / " + g.items.size());
@@ -229,7 +229,7 @@ final class ChecklistPanel extends JPanel {
                     cb.setForeground(it.done ? new Color(0x5f5290) : Theme.INK);
                     cb.setFont(Theme.MONO);
                     cb.addActionListener(e -> { it.done = cb.isSelected(); render(); scheduleSave(); });
-                    JButton del = Theme.button("×", Theme.MAGENTA, false);
+                    JButton del = Theme.button("X", Theme.MAGENTA, false);
                     del.setMargin(new Insets(0, 6, 0, 6));
                     final int idx = ii;
                     del.addActionListener(e -> { g.items.remove(idx); render(); scheduleSave(); });
@@ -238,7 +238,7 @@ final class ChecklistPanel extends JPanel {
                     gp.add(rowP);
                 }
                 if (shown == 0 && !g.items.isEmpty()) {
-                    JLabel all = new JLabel("✓ ALL " + g.items.size() + " CLEARED");
+                    JLabel all = new JLabel("ALL " + g.items.size() + " CLEARED");
                     all.setForeground(Theme.LIME);
                     all.setFont(Theme.MONO_SM);
                     all.setBorder(new EmptyBorder(6, 12, 6, 12));
@@ -281,7 +281,7 @@ final class ChecklistPanel extends JPanel {
         }
         root.put("groups", gs);
         boolean ok = Store.write("checklist.json", Json.write(root));
-        if (loud) say(ok ? "● Saved " + total() + " items" : "Save failed", ok ? Theme.LIME : Theme.MAGENTA);
+        if (loud) say(ok ? "Saved " + total() + " items" : "Save failed", ok ? Theme.LIME : Theme.MAGENTA);
     }
     private void load() {
         String s = Store.read("checklist.json");

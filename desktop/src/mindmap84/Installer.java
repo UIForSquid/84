@@ -17,7 +17,7 @@ import javax.swing.border.*;
  */
 final class Installer {
 
-    private final JFrame frame = new JFrame(Config.APP_NAME + " — Setup");
+    private final JFrame frame = new JFrame(Config.APP_NAME + " - Setup");
     private final CardLayout cards = new CardLayout();
     private final JPanel deck = new JPanel(cards);
 
@@ -107,7 +107,7 @@ final class Installer {
         h.setFont(h.getFont().deriveFont(Font.BOLD, 16f));
 
         JPanel row = new JPanel(new BorderLayout(6, 0));
-        JButton browse = new JButton("Browse…");
+        JButton browse = new JButton("Browse...");
         browse.addActionListener(e -> {
             JFileChooser fc = new JFileChooser(locField.getText());
             fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -134,7 +134,7 @@ final class Installer {
 
     private JPanel progressCard() {
         JPanel p = pad();
-        JLabel h = new JLabel("Installing…");
+        JLabel h = new JLabel("Installing...");
         h.setFont(h.getFont().deriveFont(Font.BOLD, 16f));
         log.setEditable(false);
         log.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
@@ -176,10 +176,10 @@ final class Installer {
                 if (tgt.startsWith(source))
                     throw new IOException("Pick a folder outside the current app folder.");
                 Files.createDirectories(tgt);
-                publish("Copying files…");
+                publish("Copying files...");
                 copyTree(source, tgt, this::publish);
                 Path exe = tgt.resolve(Config.EXE_NAME);
-                if (makeShortcut) { publish("Creating desktop shortcut…"); makeDesktopShortcut(exe); }
+                if (makeShortcut) { publish("Creating desktop shortcut..."); makeDesktopShortcut(exe); }
                 publish("Done.");
                 return exe;
             }

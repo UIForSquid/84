@@ -19,7 +19,7 @@ jar --create --file build/app.jar --main-class mindmap84.Main -C out .
 
 echo "Packaging .exe (jpackage)..."
 jpackage --type app-image --name MINDMAP84 --input build --main-jar app.jar \
-  --main-class mindmap84.Main --dest dist --app-version 0.1.3 \
+  --main-class mindmap84.Main --dest dist --app-version 0.1.5 \
   --description "MINDMAP//84 mind map, checklist and datalist" --vendor "MINDMAP84" \
   --add-modules java.desktop,java.net.http,jdk.crypto.ec \
   --add-launcher Installer=packaging/installer.properties

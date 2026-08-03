@@ -63,7 +63,7 @@ final class DatalistPanel extends JPanel {
 
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
         row.setBackground(Theme.VOID); row.setAlignmentX(LEFT_ALIGNMENT);
-        JButton gen = Theme.button("▸ Generate", Theme.MAGENTA, true);
+        JButton gen = Theme.button("Generate", Theme.MAGENTA, true);
         JButton add = Theme.button("+ Add", Theme.CYAN, false);
         JButton purge = Theme.button("Purge", Theme.CYAN, false);
         gen.addActionListener(e -> { groups.clear(); groups.addAll(parse(input.getText())); render(); });
@@ -86,7 +86,7 @@ final class DatalistPanel extends JPanel {
         meta.setBackground(Theme.VOID); meta.setAlignmentX(LEFT_ALIGNMENT);
         count.setFont(Theme.HEAD); count.setForeground(Theme.AMBER);
         meta.add(count);
-        JButton save = Theme.button("● Save", Theme.CYAN, false);
+        JButton save = Theme.button("Save", Theme.CYAN, false);
         JButton loadB = Theme.button("Load", Theme.CYAN, false);
         JButton expand = Theme.button("Expand", Theme.CYAN, false);
         JButton collapse = Theme.button("Collapse", Theme.CYAN, false);
@@ -156,7 +156,7 @@ final class DatalistPanel extends JPanel {
     private void render() {
         body.removeAll();
         if (groups.isEmpty()) {
-            JLabel empty = new JLabel("● No Data Loaded ●");
+            JLabel empty = new JLabel("No Data Loaded");
             empty.setForeground(Theme.MUTED); empty.setFont(Theme.MONO);
             empty.setBorder(new EmptyBorder(22, 12, 22, 12)); empty.setAlignmentX(LEFT_ALIGNMENT);
             body.add(empty);
@@ -172,7 +172,7 @@ final class DatalistPanel extends JPanel {
             head.setBackground(new Color(0x1a0d38));
             head.setBorder(new EmptyBorder(9, 12, 9, 12));
             head.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            JLabel name = new JLabel((g.collapsed ? "▸ " : "▾ ") + g.name.toUpperCase());
+            JLabel name = new JLabel((g.collapsed ? "[+] " : "[-] ") + g.name.toUpperCase());
             name.setFont(Theme.HEAD); name.setForeground(Color.WHITE);
             JLabel gcount = new JLabel(g.items.size() + (g.items.size() == 1 ? " item" : " items"));
             gcount.setFont(Theme.MONO_SM); gcount.setForeground(Theme.CYAN);
@@ -211,9 +211,9 @@ final class DatalistPanel extends JPanel {
 
                     JPanel ctrl = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
                     ctrl.setBackground(new Color(0x0c051e));
-                    JButton up = Theme.button("▲", Theme.CYAN, false);
-                    JButton dn = Theme.button("▼", Theme.CYAN, false);
-                    JButton del = Theme.button("×", Theme.MAGENTA, false);
+                    JButton up = Theme.button("Up", Theme.CYAN, false);
+                    JButton dn = Theme.button("Dn", Theme.CYAN, false);
+                    JButton del = Theme.button("X", Theme.MAGENTA, false);
                     up.setMargin(new Insets(0, 5, 0, 5)); dn.setMargin(new Insets(0, 5, 0, 5)); del.setMargin(new Insets(0, 6, 0, 6));
                     up.setEnabled(idx > 0); dn.setEnabled(idx < g.items.size() - 1);
                     up.addActionListener(e -> { Collections.swap(g.items, idx, idx - 1); render(); scheduleSave(); });
@@ -262,7 +262,7 @@ final class DatalistPanel extends JPanel {
         }
         root.put("groups", gs);
         boolean ok = Store.write("datalist.json", Json.write(root));
-        if (loud) say(ok ? "● Saved " + total() + " items" : "Save failed", ok ? Theme.LIME : Theme.MAGENTA);
+        if (loud) say(ok ? "Saved " + total() + " items" : "Save failed", ok ? Theme.LIME : Theme.MAGENTA);
     }
     private void load() {
         String s = Store.read("datalist.json");

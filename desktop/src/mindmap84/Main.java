@@ -26,6 +26,7 @@ public final class Main {
                             if (args.length > 2 && args[2].equals("edit")) mp.debugStartNameEdit();
                             if (args.length > 2 && args[2].equals("overlay")) mp.debugSelectFirst();
                             if (args.length > 2 && args[2].equals("wiki")) mp.debugOpenFirstWiki();
+                            if (args.length > 2 && args[2].equals("sample")) mp.debugSampleWiki();
                             mp.invalidate(); mp.validate();   // full recursive layout before paint
                             java.awt.image.BufferedImage img =
                                 new java.awt.image.BufferedImage(1240, 780, java.awt.image.BufferedImage.TYPE_INT_ARGB);
@@ -118,7 +119,7 @@ public final class Main {
         JLabel ver = new JLabel("v" + Config.VERSION);
         ver.setFont(Theme.MONO_SM);
         ver.setForeground(Theme.MUTED);
-        JButton upd = Theme.button("⟳ Check for Updates", Theme.CYAN, false);
+        JButton upd = Theme.button("Check for Updates", Theme.CYAN, false);
         upd.addActionListener(e -> Updater.checkInteractive(frame));
         right.add(ver);
         right.add(upd);

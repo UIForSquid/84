@@ -204,10 +204,10 @@ final class Updater {
 
     /** Download + extract with a modal progress dialog, then relaunch. */
     static void downloadAndApply(Component parent, Release r) {
-        JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(parent), "Updating…", Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(parent), "Updating...", Dialog.ModalityType.APPLICATION_MODAL);
         JProgressBar prog = new JProgressBar();
         prog.setIndeterminate(true);
-        JLabel lbl = new JLabel("Downloading v" + r.version + " …");
+        JLabel lbl = new JLabel("Downloading v" + r.version + " ...");
         JPanel p = new JPanel(new BorderLayout(10, 10));
         p.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
         p.add(lbl, BorderLayout.NORTH);
@@ -245,7 +245,7 @@ final class Updater {
                 System.out.println("Up to date (v" + Config.VERSION + ").");
                 return false;
             }
-            System.out.println("Updating v" + Config.VERSION + " -> v" + r.version + " …");
+            System.out.println("Updating v" + Config.VERSION + " -> v" + r.version + " ...");
             Path work = Files.createTempDirectory("mindmap84-update");
             Path zip = work.resolve(Config.ASSET_NAME);
             downloadZip(r, zip);
@@ -264,7 +264,7 @@ final class Updater {
     }
     private static String trim(String s, int max) {
         s = s.strip();
-        return s.length() <= max ? s : s.substring(0, max) + "…";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     private Updater() {}

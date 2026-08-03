@@ -15,7 +15,6 @@ final class MindMapPanel extends JPanel {
     // ---- model ----
     static final class Node {
         int id; String label; String color; double x, y; Integer parent; String notes = "";
-        java.util.List<String> list = new java.util.ArrayList<>();   // per-node datalist items
     }
 
     private final List<Node> nodes = new ArrayList<>();
@@ -135,7 +134,7 @@ final class MindMapPanel extends JPanel {
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
         bar.setBackground(new Color(0x0a0616));
         bar.setBorder(new MatteBorder(0, 0, 1, 0, Theme.LINE));
-        JButton back = Theme.button("← Back to Map", Theme.CYAN, false);
+        JButton back = Theme.button("Back to Map", Theme.CYAN, false);
         back.addActionListener(e -> viewCards.show(centerCards, "map"));
         bar.add(back);
         v.add(bar, BorderLayout.NORTH);
@@ -182,7 +181,7 @@ final class MindMapPanel extends JPanel {
             if (p != null) {
                 JPanel bc = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
                 bc.setBackground(Theme.VOID); bc.setAlignmentX(LEFT_ALIGNMENT);
-                JLabel up = new JLabel("▲ parent:");
+                JLabel up = new JLabel("parent:");
                 up.setForeground(Theme.MUTED); up.setFont(Theme.MONO_SM);
                 bc.add(up); bc.add(wikiLink(p));
                 wikiContent.add(bc);
@@ -195,9 +194,6 @@ final class MindMapPanel extends JPanel {
         wikiNotes.setPreferredSize(new Dimension(780, 340));
         wikiNotes.show(n.id);
         wikiContent.add(wikiNotes);
-        wikiContent.add(Box.createVerticalStrut(22));
-
-        wikiContent.add(buildNodeDatalist(n));
         wikiContent.add(Box.createVerticalStrut(22));
 
         List<Node> kids = childrenOf(n.id);
@@ -222,82 +218,6 @@ final class MindMapPanel extends JPanel {
         wikiContent.repaint();
     }
 
-    /** A per-node ordered Datalist (numbered items, add/edit/reorder/remove) on the wiki page. */
-    private JComponent buildNodeDatalist(Node n) {
-        JPanel box = new JPanel();
-        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
-        box.setBackground(Theme.VOID);
-        box.setAlignmentX(LEFT_ALIGNMENT);
-        box.setMaximumSize(new Dimension(920, Integer.MAX_VALUE));
-
-        JLabel h = new JLabel("DATALIST (" + n.list.size() + ")");
-        h.setFont(Theme.HEAD); h.setForeground(Theme.CYAN); h.setAlignmentX(LEFT_ALIGNMENT);
-        h.setBorder(new EmptyBorder(0, 0, 8, 0));
-        box.add(h);
-
-        for (int i = 0; i < n.list.size(); i++) {
-            final int idx = i;
-            JPanel row = new JPanel(new BorderLayout(8, 0));
-            row.setBackground(Theme.VOID);
-            row.setAlignmentX(LEFT_ALIGNMENT);
-            row.setMaximumSize(new Dimension(880, 34));
-
-            JLabel num = new JLabel((i + 1) + ".");
-            num.setFont(Theme.MONO); num.setForeground(Theme.AMBER);
-            num.setBorder(new EmptyBorder(0, 2, 0, 6));
-
-            JTextField tf = new JTextField(n.list.get(idx));
-            tf.setFont(Theme.MONO); tf.setForeground(Theme.INK);
-            tf.setBackground(new Color(0x0c051e)); tf.setCaretColor(Theme.LIME);
-            tf.setBorder(new CompoundBorder(new LineBorder(Theme.LINE), new EmptyBorder(5, 8, 5, 8)));
-            Runnable commit = () -> { if (idx < n.list.size()) { n.list.set(idx, tf.getText()); scheduleSave(); } };
-            tf.addActionListener(e -> commit.run());
-            tf.addFocusListener(new FocusAdapter() { public void focusLost(FocusEvent e) { commit.run(); } });
-
-            JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
-            btns.setOpaque(false);
-            JButton up = listOpBtn("↑"); up.addActionListener(e -> { if (idx > 0) { java.util.Collections.swap(n.list, idx, idx - 1); scheduleSave(); buildWikiContent(n); } });
-            JButton dn = listOpBtn("↓"); dn.addActionListener(e -> { if (idx < n.list.size() - 1) { java.util.Collections.swap(n.list, idx, idx + 1); scheduleSave(); buildWikiContent(n); } });
-            JButton rm = listOpBtn("✕"); rm.addActionListener(e -> { n.list.remove(idx); scheduleSave(); buildWikiContent(n); });
-            btns.add(up); btns.add(dn); btns.add(rm);
-
-            row.add(num, BorderLayout.WEST);
-            row.add(tf, BorderLayout.CENTER);
-            row.add(btns, BorderLayout.EAST);
-            box.add(row);
-            box.add(Box.createVerticalStrut(5));
-        }
-
-        // add-item row
-        JPanel addRow = new JPanel(new BorderLayout(8, 0));
-        addRow.setBackground(Theme.VOID);
-        addRow.setAlignmentX(LEFT_ALIGNMENT);
-        addRow.setMaximumSize(new Dimension(880, 34));
-        JTextField add = new JTextField();
-        add.setFont(Theme.MONO); add.setForeground(Theme.LIME);
-        add.setBackground(new Color(0x060212)); add.setCaretColor(Theme.LIME);
-        add.setBorder(new CompoundBorder(new LineBorder(Theme.LINE), new EmptyBorder(5, 8, 5, 8)));
-        JButton addBtn = Theme.button("+ Add item", Theme.MAGENTA, false);
-        Runnable doAdd = () -> { String t = add.getText().trim(); if (!t.isEmpty()) { n.list.add(t); scheduleSave(); buildWikiContent(n); } };
-        add.addActionListener(e -> doAdd.run());
-        addBtn.addActionListener(e -> doAdd.run());
-        addRow.add(add, BorderLayout.CENTER);
-        addRow.add(addBtn, BorderLayout.EAST);
-        box.add(addRow);
-
-        return box;
-    }
-
-    private JButton listOpBtn(String text) {
-        JButton b = new JButton(text);
-        b.setFont(Theme.MONO);
-        b.setForeground(Theme.INK);
-        b.setBackground(new Color(0x1a0d38));
-        b.setBorder(new EmptyBorder(2, 9, 2, 9));
-        b.setFocusPainted(false);
-        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        return b;
-    }
 
     private JComponent wikiLink(final Node n) {
         final JLabel l = new JLabel(n.label.isEmpty() ? "(untitled)" : n.label,
@@ -325,10 +245,12 @@ final class MindMapPanel extends JPanel {
     private final class NotesView extends JPanel {
         private Integer nodeId;
         private boolean editing;
-        private boolean showingPlaceholder = false;
         private final Color DOC_BG = new Color(0x0c051e);    // == panel bg -> no visible box
         private final Color EDIT_BG = new Color(0x060212);   // darker box while editing
-        private final JTextArea area = new JTextArea();
+        private final JTextArea area = new JTextArea();          // raw markdown (edit mode)
+        private final JEditorPane view = new JEditorPane();      // rendered markdown (read mode)
+        private final CardLayout bodyCards = new CardLayout();
+        private final JPanel body = new JPanel();
         private final JButton editBtn = Theme.button("Edit", Theme.CYAN, false);
         private final JLabel head = new JLabel();
         private final JPanel listBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -351,9 +273,11 @@ final class MindMapPanel extends JPanel {
             // list toolbar (only visible while editing)
             listBar.setBackground(new Color(0x120829));
             listBar.setBorder(new EmptyBorder(3, 8, 3, 8));
-            listBar.add(listButton("• List", "• "));
+            listBar.add(actionButton("# Heading", () -> insertLinePrefix("# ")));
+            listBar.add(actionButton("Bold", this::wrapBold));
+            listBar.add(listButton("- List", "- "));
             listBar.add(listButton("1. List", "1. "));
-            listBar.add(listButton("☐ Task", "[ ] "));
+            listBar.add(listButton("[ ] Task", "[ ] "));
             listBar.setVisible(false);
 
             JPanel north = new JPanel(new BorderLayout());
@@ -370,25 +294,34 @@ final class MindMapPanel extends JPanel {
             area.getActionMap().put("listEnter", new AbstractAction() {
                 public void actionPerformed(ActionEvent e) { handleEnter(); }
             });
-            JScrollPane sp = new JScrollPane(area);
-            sp.setBorder(null);
-            sp.setOpaque(false);
-            sp.getViewport().setBackground(DOC_BG);
-            add(sp, BorderLayout.CENTER);
+            JScrollPane editScroll = new JScrollPane(area);
+            editScroll.setBorder(null);
+            editScroll.setOpaque(false);
+            editScroll.getViewport().setBackground(EDIT_BG);
+
+            view.setEditable(false);
+            view.setContentType("text/html");
+            view.setOpaque(true);
+            view.setBackground(DOC_BG);
+            view.setBorder(new EmptyBorder(12, 16, 12, 16));
+            JScrollPane readScroll = new JScrollPane(view);
+            readScroll.setBorder(null);
+            readScroll.setOpaque(false);
+            readScroll.getViewport().setBackground(DOC_BG);
+
+            body.setOpaque(false);
+            body.setLayout(bodyCards);
+            body.add(readScroll, "read");
+            body.add(editScroll, "edit");
+            add(body, BorderLayout.CENTER);
             applyStyle();
         }
 
-        /** Read-only = looks like a document (no box); editing = a highlighted text box. */
+        /** The edit box styling (the read view is rendered HTML, styled via CSS). */
         private void applyStyle() {
-            if (editing) {
-                area.setBackground(EDIT_BG);
-                area.setForeground(Theme.LIME);
-                area.setBorder(new CompoundBorder(new LineBorder(Theme.MAGENTA, 1), new EmptyBorder(8, 12, 8, 12)));
-            } else {
-                area.setBackground(DOC_BG);
-                area.setForeground(Theme.INK);
-                area.setBorder(new EmptyBorder(12, 16, 12, 16));
-            }
+            area.setBackground(EDIT_BG);
+            area.setForeground(Theme.LIME);
+            area.setBorder(new CompoundBorder(new LineBorder(Theme.MAGENTA, 1), new EmptyBorder(8, 12, 8, 12)));
         }
 
         private JButton listButton(String text, String marker) {
@@ -397,45 +330,93 @@ final class MindMapPanel extends JPanel {
             b.addActionListener(e -> insertMarker(marker));
             return b;
         }
+        private JButton actionButton(String text, Runnable action) {
+            JButton b = Theme.button(text, Theme.PURPLE, false);
+            b.setFont(Theme.MONO_SM);
+            b.addActionListener(e -> action.run());
+            return b;
+        }
 
         void show(Integer id) {
             nodeId = id; editing = false;
             Node n = byId(id);
-            head.setText(baseTitle + (n != null && n.label != null && !n.label.isEmpty() ? "  ·  " + n.label : ""));
-            String notes = (n == null || n.notes == null) ? "" : n.notes;
+            head.setText(baseTitle + (n != null && n.label != null && !n.label.isEmpty() ? "  -  " + n.label : ""));
             editBtn.setText("Edit");
             listBar.setVisible(false);
-            area.setEditable(false);
-            applyStyle();
-            if (notes.isEmpty()) {                       // document placeholder when empty
-                showingPlaceholder = true;
-                area.setText("No notes yet — press Edit to add.");
-                area.setForeground(Theme.MUTED);
-            } else {
-                showingPlaceholder = false;
-                area.setText(notes);
-            }
-            area.setCaretPosition(0);
+            view.setText(renderHtml(n == null ? "" : n.notes));   // rendered markdown
+            view.setCaretPosition(0);
+            bodyCards.show(body, "read");
         }
 
         private void toggle() {
             if (nodeId == null) return;
             editing = !editing;
             if (editing) {
-                if (showingPlaceholder) { area.setText(""); showingPlaceholder = false; }
+                Node n = byId(nodeId);
+                area.setText(n == null || n.notes == null ? "" : n.notes);   // raw markdown
                 area.setEditable(true);
+                area.setCaretPosition(area.getDocument().getLength());
                 listBar.setVisible(true);
                 editBtn.setText("Done");
                 applyStyle();
+                bodyCards.show(body, "edit");
                 area.requestFocusInWindow();
             } else {
-                area.setEditable(false);
-                listBar.setVisible(false);
                 editBtn.setText("Edit");
+                listBar.setVisible(false);
                 Node n = byId(nodeId);
                 if (n != null) { n.notes = area.getText(); onNotesChanged(nodeId); } // refreshes this view too
                 show(nodeId);
             }
+        }
+
+        // ---- edit-mode toolbar actions ----
+        private void insertLinePrefix(String prefix) {
+            if (!editing) return;
+            int ls = lineStart(area.getText(), area.getCaretPosition());
+            try { area.getDocument().insertString(ls, prefix, null); } catch (javax.swing.text.BadLocationException ex) {}
+            area.requestFocusInWindow();
+        }
+        private void wrapBold() {
+            if (!editing) return;
+            String sel = area.getSelectedText();
+            if (sel != null && !sel.isEmpty()) area.replaceSelection("**" + sel + "**");
+            else { int pos = area.getCaretPosition(); area.insert("****", pos); area.setCaretPosition(pos + 2); }
+            area.requestFocusInWindow();
+        }
+
+        // ---- markdown -> HTML for the read view ----
+        private String renderHtml(String md) {
+            String fam = Theme.MONO.getFamily();
+            StringBuilder b = new StringBuilder();
+            b.append("<html><head><style>")
+             .append("body{font-family:'").append(fam).append("',monospace;color:#d8d2ea;font-size:13px;margin:0;padding:0;}")
+             .append("h1{color:#00f0ff;font-size:19px;margin:12px 0 6px 0;}")
+             .append("h2{color:#00f0ff;font-size:16px;margin:10px 0 5px 0;}")
+             .append("h3{color:#b537f2;font-size:14px;margin:9px 0 4px 0;}")
+             .append("b{color:#ffffff;}")
+             .append(".li{margin:1px 0 1px 16px;}")
+             .append("</style></head><body>");
+            if (md == null || md.isEmpty()) {
+                b.append("<div style=\"color:#7a7290;\">No notes yet - press Edit to add.</div>");
+            } else {
+                for (String line : md.split("\n", -1)) {
+                    if (line.startsWith("### "))     b.append("<h3>").append(inline(esc(line.substring(4)))).append("</h3>");
+                    else if (line.startsWith("## ")) b.append("<h2>").append(inline(esc(line.substring(3)))).append("</h2>");
+                    else if (line.startsWith("# "))  b.append("<h1>").append(inline(esc(line.substring(2)))).append("</h1>");
+                    else if (markerOf(line) != null) b.append("<div class=\"li\">").append(inline(esc(line))).append("</div>");
+                    else if (line.isEmpty())         b.append("<div>&nbsp;</div>");
+                    else                             b.append("<div>").append(inline(esc(line))).append("</div>");
+                }
+            }
+            b.append("</body></html>");
+            return b.toString();
+        }
+        private String esc(String s) {
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        }
+        private String inline(String s) {
+            return s.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");
         }
 
         void refreshIfShowing(Integer id) {
@@ -448,7 +429,7 @@ final class MindMapPanel extends JPanel {
             return i < 0 ? 0 : i + 1;
         }
         private String markerOf(String line) {
-            if (line.startsWith("• ")) return "• ";
+            if (line.startsWith("- ")) return "- ";
             if (line.length() >= 4 && line.charAt(0) == '[' && line.charAt(2) == ']' && line.charAt(3) == ' ')
                 return line.substring(0, 4);            // "[ ] " or "[x] "
             java.util.regex.Matcher m = NUM_MARK.matcher(line);
@@ -456,14 +437,14 @@ final class MindMapPanel extends JPanel {
             return null;
         }
         private String nextMarker(String marker) {
-            if (marker.startsWith("•")) return "• ";
+            if (marker.startsWith("-")) return "- ";
             if (marker.startsWith("[")) return "[ ] ";
             java.util.regex.Matcher m = NUM_MARK.matcher(marker);
             if (m.find()) return (Integer.parseInt(m.group(1)) + 1) + ". ";
             return "";
         }
         private boolean sameKind(String a, String b) {
-            return (a.startsWith("•") && b.startsWith("•"))
+            return (a.startsWith("-") && b.startsWith("-"))
                 || (a.startsWith("[") && b.startsWith("["))
                 || (Character.isDigit(a.charAt(0)) && Character.isDigit(b.charAt(0)));
         }
@@ -872,6 +853,12 @@ final class MindMapPanel extends JPanel {
     void debugSelectFirst() { if (!nodes.isEmpty()) selectNode(nodes.get(0).id); }
     void debugOpenFirstWiki() { if (!nodes.isEmpty()) openWiki(nodes.get(0).id); }
     void debugStartNameEdit() { if (!nodes.isEmpty()) canvas.startNameEdit(nodes.get(0)); }
+    void debugSampleWiki() {   // in-memory only (never saved) — for render verification
+        if (nodes.isEmpty()) return;
+        Node n = nodes.get(0);
+        n.notes = "# Overview\nInventor is a **crafting** profession.\n\nRole:\n- Builds gadgets\n- Researches tech\n\nSteps:\n1. Gather parts\n2. Assemble\n\nTasks:\n[ ] Prototype\n[x] Test passed";
+        openWiki(n.id);
+    }
 
     void flush() { saveNow(false); }
     private void saveNow(boolean loud) {
@@ -888,12 +875,11 @@ final class MindMapPanel extends JPanel {
             m.put("y", n.y);
             m.put("parent", n.parent);
             m.put("notes", n.notes == null ? "" : n.notes);
-            m.put("list", new ArrayList<Object>(n.list));
             arr.add(m);
         }
         root.put("nodes", arr);
         boolean ok = Store.write("mindmap.json", Json.write(root));
-        if (loud) say(ok ? "● Saved " + nodes.size() + " nodes" : "Save failed", ok ? Theme.LIME : Theme.MAGENTA);
+        if (loud) say(ok ? "Saved " + nodes.size() + " nodes" : "Save failed", ok ? Theme.LIME : Theme.MAGENTA);
     }
     private void load() {
         String s = Store.read("mindmap.json");
@@ -920,8 +906,6 @@ final class MindMapPanel extends JPanel {
                 n.parent = (par instanceof Number) ? ((Number) par).intValue() : null;
                 n.notes = Json.asStr(m.get("notes"));
                 if (n.notes == null) n.notes = "";
-                List<Object> li = Json.asList(m.get("list"));
-                if (li != null) for (Object it : li) { String sv = Json.asStr(it); if (sv != null) n.list.add(sv); }
                 nodes.add(n);
                 maxId = Math.max(maxId, n.id);
             }
