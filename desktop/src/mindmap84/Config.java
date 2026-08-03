@@ -12,7 +12,7 @@ package mindmap84;
  */
 final class Config {
     /** Current app version. Keep in sync with the git tag (tag = "v" + VERSION). */
-    static final String VERSION = "1.0.0";
+    static final String VERSION = "0.0.1";
 
     /** GitHub account + repo that hosts the releases (must be PUBLIC). */
     static final String GITHUB_OWNER = "UIForSquid";

@@ -24,6 +24,9 @@ public final class Main {
                             fr.setContentPane(mp); fr.setSize(1240, 820); fr.addNotify(); fr.validate();
                             mp.setSize(1240, 780); mp.doLayout();
                             if (args.length > 2 && args[2].equals("edit")) mp.debugStartNameEdit();
+                            if (args.length > 2 && args[2].equals("overlay")) mp.debugSelectFirst();
+                            if (args.length > 2 && args[2].equals("wiki")) mp.debugOpenFirstWiki();
+                            mp.invalidate(); mp.validate();   // full recursive layout before paint
                             java.awt.image.BufferedImage img =
                                 new java.awt.image.BufferedImage(1240, 780, java.awt.image.BufferedImage.TYPE_INT_ARGB);
                             Graphics2D g = img.createGraphics(); mp.paint(g); g.dispose();

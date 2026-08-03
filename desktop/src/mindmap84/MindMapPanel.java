@@ -47,8 +47,9 @@ final class MindMapPanel extends JPanel {
     private final JLabel status = new JLabel(" ");
     private final JPanel inspector;
 
-    // views: "map" (canvas) and "wiki" (full page), switched by this CardLayout
+    // the CENTRE swaps between "map" (canvas) and "wiki"; the left sidebar always stays
     private final CardLayout viewCards = new CardLayout();
+    private final JPanel centerCards = new JPanel();
     private JLayeredPane centerLayered;   // holds the canvas + floating notes overlay
     private JPanel overlayPanel;          // bottom-centre notes overlay (read-only + Edit)
     private NotesView overlayNotes;       // notes editor inside the overlay
@@ -59,19 +60,24 @@ final class MindMapPanel extends JPanel {
     private Timer saveTimer;
 
     MindMapPanel() {
-        setLayout(viewCards);
+        setLayout(new BorderLayout());
         setBackground(Theme.VOID);
 
-        JPanel mapView = new JPanel(new BorderLayout());
-        mapView.setBackground(Theme.VOID);
-        mapView.add(buildSidebar(), BorderLayout.WEST);
-        mapView.add(buildCenter(), BorderLayout.CENTER);
-        inspector = buildInspector();
-        mapView.add(inspector, BorderLayout.EAST);
+        // left sidebar is always visible; only the centre swaps map <-> wiki
+        add(buildSidebar(), BorderLayout.WEST);
 
-        add(mapView, "map");
-        add(buildWiki(), "wiki");
-        viewCards.show(this, "map");
+        JPanel mapCard = new JPanel(new BorderLayout());
+        mapCard.setBackground(Theme.VOID);
+        mapCard.add(buildCenter(), BorderLayout.CENTER);
+        inspector = buildInspector();
+        mapCard.add(inspector, BorderLayout.EAST);
+
+        centerCards.setLayout(viewCards);
+        centerCards.setBackground(Theme.VOID);
+        centerCards.add(mapCard, "map");
+        centerCards.add(buildWiki(), "wiki");
+        add(centerCards, BorderLayout.CENTER);
+        viewCards.show(centerCards, "map");
 
         // ambient wobble ~30fps
         Timer anim = new Timer(33, e -> { animTime += 0.033; canvas.repaint(); });
@@ -129,7 +135,7 @@ final class MindMapPanel extends JPanel {
         bar.setBackground(new Color(0x0a0616));
         bar.setBorder(new MatteBorder(0, 0, 1, 0, Theme.LINE));
         JButton back = Theme.button("← Back to Map", Theme.CYAN, false);
-        back.addActionListener(e -> viewCards.show(this, "map"));
+        back.addActionListener(e -> viewCards.show(centerCards, "map"));
         bar.add(back);
         v.add(bar, BorderLayout.NORTH);
 
@@ -153,7 +159,7 @@ final class MindMapPanel extends JPanel {
         rebuildTree();
         if (overlayPanel != null) { overlayNotes.show(id); overlayPanel.setVisible(true); }
         buildWikiContent(n);
-        viewCards.show(this, "wiki");
+        viewCards.show(centerCards, "wiki");
     }
 
     private void buildWikiContent(Node n) {
@@ -238,6 +244,9 @@ final class MindMapPanel extends JPanel {
     private final class NotesView extends JPanel {
         private Integer nodeId;
         private boolean editing;
+        private boolean showingPlaceholder = false;
+        private final Color DOC_BG = new Color(0x0c051e);    // == panel bg -> no visible box
+        private final Color EDIT_BG = new Color(0x060212);   // darker box while editing
         private final JTextArea area = new JTextArea();
         private final JButton editBtn = Theme.button("Edit", Theme.CYAN, false);
         private final JLabel head = new JLabel();
@@ -273,18 +282,32 @@ final class MindMapPanel extends JPanel {
             add(north, BorderLayout.NORTH);
 
             area.setLineWrap(true); area.setWrapStyleWord(true);
-            area.setFont(Theme.MONO); area.setForeground(Theme.INK);
-            area.setBackground(new Color(0x060212)); area.setCaretColor(Theme.LIME);
-            area.setBorder(new EmptyBorder(9, 11, 9, 11));
+            area.setFont(Theme.MONO); area.setCaretColor(Theme.LIME);
             area.setEditable(false);
-            // Enter continues a list; otherwise it's a normal line break
+            // Enter: a plain line break (or continues a list) — never commits
             area.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "listEnter");
             area.getActionMap().put("listEnter", new AbstractAction() {
                 public void actionPerformed(ActionEvent e) { handleEnter(); }
             });
             JScrollPane sp = new JScrollPane(area);
             sp.setBorder(null);
+            sp.setOpaque(false);
+            sp.getViewport().setBackground(DOC_BG);
             add(sp, BorderLayout.CENTER);
+            applyStyle();
+        }
+
+        /** Read-only = looks like a document (no box); editing = a highlighted text box. */
+        private void applyStyle() {
+            if (editing) {
+                area.setBackground(EDIT_BG);
+                area.setForeground(Theme.LIME);
+                area.setBorder(new CompoundBorder(new LineBorder(Theme.MAGENTA, 1), new EmptyBorder(8, 12, 8, 12)));
+            } else {
+                area.setBackground(DOC_BG);
+                area.setForeground(Theme.INK);
+                area.setBorder(new EmptyBorder(12, 16, 12, 16));
+            }
         }
 
         private JButton listButton(String text, String marker) {
@@ -298,26 +321,39 @@ final class MindMapPanel extends JPanel {
             nodeId = id; editing = false;
             Node n = byId(id);
             head.setText(baseTitle + (n != null && n.label != null && !n.label.isEmpty() ? "  ·  " + n.label : ""));
-            area.setText(n == null || n.notes == null ? "" : n.notes);
-            area.setEditable(false);
-            area.setForeground(Theme.INK);
-            area.setCaretPosition(0);
+            String notes = (n == null || n.notes == null) ? "" : n.notes;
             editBtn.setText("Edit");
             listBar.setVisible(false);
+            area.setEditable(false);
+            applyStyle();
+            if (notes.isEmpty()) {                       // document placeholder when empty
+                showingPlaceholder = true;
+                area.setText("No notes yet — press Edit to add.");
+                area.setForeground(Theme.MUTED);
+            } else {
+                showingPlaceholder = false;
+                area.setText(notes);
+            }
+            area.setCaretPosition(0);
         }
 
         private void toggle() {
             if (nodeId == null) return;
             editing = !editing;
-            area.setEditable(editing);
-            listBar.setVisible(editing);
-            editBtn.setText(editing ? "Done" : "Edit");
-            area.setForeground(editing ? Theme.LIME : Theme.INK);
             if (editing) {
+                if (showingPlaceholder) { area.setText(""); showingPlaceholder = false; }
+                area.setEditable(true);
+                listBar.setVisible(true);
+                editBtn.setText("Done");
+                applyStyle();
                 area.requestFocusInWindow();
             } else {
+                area.setEditable(false);
+                listBar.setVisible(false);
+                editBtn.setText("Edit");
                 Node n = byId(nodeId);
-                if (n != null) { n.notes = area.getText(); onNotesChanged(nodeId); }
+                if (n != null) { n.notes = area.getText(); onNotesChanged(nodeId); } // refreshes this view too
+                show(nodeId);
             }
         }
 
