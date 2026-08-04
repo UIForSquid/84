@@ -27,6 +27,8 @@ public final class Main {
                             if (args.length > 2 && args[2].equals("overlay")) mp.debugSelectFirst();
                             if (args.length > 2 && args[2].equals("wiki")) mp.debugOpenFirstWiki();
                             if (args.length > 2 && args[2].equals("sample")) mp.debugSampleWiki();
+                            if (args.length > 2 && args[2].equals("sampleedit")) mp.debugSampleWikiEdit();
+                            if (args.length > 2 && args[2].equals("empty")) mp.debugEmptyWiki();
                             mp.invalidate(); mp.validate();   // full recursive layout before paint
                             java.awt.image.BufferedImage img =
                                 new java.awt.image.BufferedImage(1240, 780, java.awt.image.BufferedImage.TYPE_INT_ARGB);

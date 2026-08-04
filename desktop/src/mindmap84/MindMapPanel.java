@@ -53,8 +53,11 @@ final class MindMapPanel extends JPanel {
     private JLayeredPane centerLayered;   // holds the canvas + floating notes overlay
     private JPanel overlayPanel;          // bottom-centre notes overlay (read-only + Edit)
     private NotesView overlayNotes;       // notes editor inside the overlay
-    private JPanel wikiContent;           // wiki page body, rebuilt per node
-    private NotesView wikiNotes;          // notes editor on the wiki page
+    private JPanel wikiContent;           // wiki page centre column, rebuilt per node
+    private JPanel wikiLinked;            // right-hand Linked Nodes column, rebuilt per node
+    private Integer wikiNodeId = null;    // node currently shown on the wiki page
+    private boolean wikiEditing = false;  // wiki notes: read (rendered) vs edit (raw markdown)
+    private final JTextArea wikiArea = new JTextArea();   // raw markdown editor for the wiki page
     private boolean centeredOnce = false;
 
     private Timer saveTimer;
@@ -139,83 +142,185 @@ final class MindMapPanel extends JPanel {
         bar.add(back);
         v.add(bar, BorderLayout.NORTH);
 
-        wikiContent = new JPanel();
-        wikiContent.setLayout(new BoxLayout(wikiContent, BoxLayout.Y_AXIS));
+        // centre column: fixed header (title/parent/Edit) on top, notes filling the rest
+        wikiContent = new JPanel(new BorderLayout());
         wikiContent.setBackground(Theme.VOID);
         wikiContent.setBorder(new EmptyBorder(26, 46, 26, 46));
-        wikiNotes = new NotesView("NOTES");
-        JScrollPane sp = new JScrollPane(wikiContent);
-        sp.setBorder(null);
-        sp.getViewport().setBackground(Theme.VOID);
-        sp.getVerticalScrollBar().setUnitIncrement(16);
-        v.add(sp, BorderLayout.CENTER);
+        v.add(wikiContent, BorderLayout.CENTER);
+
+        // raw-markdown editor used by wiki edit mode (configured once)
+        wikiArea.setLineWrap(true);
+        wikiArea.setWrapStyleWord(true);
+        wikiArea.setFont(Theme.MONO);
+        wikiArea.setCaretColor(Theme.LIME);
+        wikiArea.setForeground(Theme.LIME);
+        wikiArea.setBackground(new Color(0x060212));
+        wikiArea.setBorder(new CompoundBorder(new LineBorder(Theme.MAGENTA, 1), new EmptyBorder(8, 12, 8, 12)));
+        wikiArea.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "listEnter");
+        wikiArea.getActionMap().put("listEnter", new AbstractAction() {
+            public void actionPerformed(ActionEvent e) { mdHandleEnter(wikiArea); }
+        });
+
+        // right-hand Linked Nodes column, mirroring the left sidebar
+        JPanel col = new JPanel(new BorderLayout());
+        col.setPreferredSize(new Dimension(240, 10));
+        col.setBackground(Theme.PANEL);
+        col.setBorder(new MatteBorder(0, 1, 0, 0, Theme.LINE));
+        wikiLinked = new JPanel();
+        wikiLinked.setLayout(new BoxLayout(wikiLinked, BoxLayout.Y_AXIS));
+        wikiLinked.setBackground(Theme.PANEL);
+        wikiLinked.setBorder(new EmptyBorder(26, 14, 14, 14));
+        JScrollPane lsp = new JScrollPane(wikiLinked);
+        lsp.setBorder(null);
+        lsp.getViewport().setBackground(Theme.PANEL);
+        lsp.getVerticalScrollBar().setUnitIncrement(16);
+        col.add(lsp, BorderLayout.CENTER);
+        v.add(col, BorderLayout.EAST);
         return v;
     }
 
     private void openWiki(int id) {
         Node n = byId(id); if (n == null) return;
         selected = id;
+        wikiNodeId = id;
+        wikiEditing = false;
         refreshInspector();
         rebuildTree();
         if (overlayPanel != null) { overlayNotes.show(id); overlayPanel.setVisible(true); }
         buildWikiContent(n);
+        buildWikiLinked(n);
         viewCards.show(centerCards, "wiki");
+    }
+
+    private void wikiToggleEdit() {
+        Node n = byId(wikiNodeId); if (n == null) return;
+        if (!wikiEditing) {
+            wikiEditing = true;
+            wikiArea.setText(n.notes == null ? "" : n.notes);
+            buildWikiContent(n);
+            wikiArea.setCaretPosition(wikiArea.getDocument().getLength());
+            wikiArea.requestFocusInWindow();
+        } else {
+            wikiEditing = false;
+            n.notes = wikiArea.getText();
+            onNotesChanged(n.id);
+            buildWikiContent(n);
+        }
     }
 
     private void buildWikiContent(Node n) {
         wikiContent.removeAll();
 
-        JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        titleRow.setBackground(Theme.VOID);
+        // fixed header: title (+ small Edit control at the right edge), parent line
+        JPanel head = new JPanel();
+        head.setLayout(new BoxLayout(head, BoxLayout.Y_AXIS));
+        head.setOpaque(false);
+
+        JPanel titleRow = new JPanel(new BorderLayout(12, 0));
+        titleRow.setOpaque(false);
         titleRow.setAlignmentX(LEFT_ALIGNMENT);
+        JPanel tl = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        tl.setOpaque(false);
         JLabel dot = new JLabel(dotIcon(Theme.hex(n.color)));
         JLabel title = new JLabel(n.label.isEmpty() ? "(untitled)" : n.label);
         title.setFont(Theme.HEAD_BIG.deriveFont(28f));
         title.setForeground(Color.WHITE);
-        titleRow.add(dot); titleRow.add(title);
-        wikiContent.add(titleRow);
-        wikiContent.add(Box.createVerticalStrut(6));
+        tl.add(dot); tl.add(title);
+        titleRow.add(tl, BorderLayout.WEST);
+        JButton edit = Theme.button(wikiEditing ? "Done" : "Edit", Theme.CYAN, false);
+        edit.setFont(Theme.MONO_SM);
+        edit.addActionListener(e -> wikiToggleEdit());
+        JPanel er = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        er.setOpaque(false);
+        er.add(edit);
+        titleRow.add(er, BorderLayout.EAST);
+        head.add(titleRow);
+        head.add(Box.createVerticalStrut(6));
 
         if (n.parent != null) {
             Node p = byId(n.parent);
             if (p != null) {
                 JPanel bc = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-                bc.setBackground(Theme.VOID); bc.setAlignmentX(LEFT_ALIGNMENT);
+                bc.setOpaque(false); bc.setAlignmentX(LEFT_ALIGNMENT);
                 JLabel up = new JLabel("parent:");
                 up.setForeground(Theme.MUTED); up.setFont(Theme.MONO_SM);
                 bc.add(up); bc.add(wikiLink(p));
-                wikiContent.add(bc);
+                head.add(bc);
             }
         }
-        wikiContent.add(Box.createVerticalStrut(16));
+        head.add(Box.createVerticalStrut(12));
+        wikiContent.add(head, BorderLayout.NORTH);
 
-        wikiNotes.setAlignmentX(LEFT_ALIGNMENT);
-        wikiNotes.setMaximumSize(new Dimension(920, 420));
-        wikiNotes.setPreferredSize(new Dimension(780, 340));
-        wikiNotes.show(n.id);
-        wikiContent.add(wikiNotes);
-        wikiContent.add(Box.createVerticalStrut(22));
+        if (!wikiEditing) {
+            // read mode: unboxed rendered markdown flowing on the page background
+            JEditorPane view = new JEditorPane();
+            view.setEditable(false);
+            view.setContentType("text/html");
+            view.setOpaque(false);
+            view.setText(mdRenderHtml(n.notes));
+            view.setCaretPosition(0);
+            view.setBorder(new EmptyBorder(2, 2, 8, 2));
+            JScrollPane vsp = new JScrollPane(view);
+            vsp.setBorder(null);
+            vsp.setOpaque(false);
+            vsp.getViewport().setOpaque(false);
+            vsp.getVerticalScrollBar().setUnitIncrement(16);
+            wikiContent.add(vsp, BorderLayout.CENTER);
+        } else {
+            // edit mode: list-button toolbar over the raw markdown text box
+            JPanel editWrap = new JPanel(new BorderLayout(0, 6));
+            editWrap.setOpaque(false);
+            JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            bar.setBackground(new Color(0x120829));
+            bar.setBorder(new EmptyBorder(3, 8, 3, 8));
+            bar.add(mdButton("# Heading", () -> mdInsertLinePrefix(wikiArea, "# ")));
+            bar.add(mdButton("Bold", () -> mdWrapBold(wikiArea)));
+            bar.add(mdButton("- List", () -> mdInsertMarker(wikiArea, "- ")));
+            bar.add(mdButton("1. List", () -> mdInsertMarker(wikiArea, "1. ")));
+            bar.add(mdButton("[ ] Task", () -> mdInsertMarker(wikiArea, "[ ] ")));
+            editWrap.add(bar, BorderLayout.NORTH);
+            JScrollPane esp = new JScrollPane(wikiArea);
+            esp.setBorder(null);
+            esp.getViewport().setBackground(new Color(0x060212));
+            esp.getVerticalScrollBar().setUnitIncrement(16);
+            editWrap.add(esp, BorderLayout.CENTER);
+            wikiContent.add(editWrap, BorderLayout.CENTER);
+        }
 
+        wikiContent.revalidate();
+        wikiContent.repaint();
+    }
+
+    /** Rebuilds the right-hand Linked Nodes column for the given node. */
+    private void buildWikiLinked(Node n) {
+        wikiLinked.removeAll();
         List<Node> kids = childrenOf(n.id);
         JLabel h = new JLabel("LINKED NODES (" + kids.size() + ")");
         h.setFont(Theme.HEAD); h.setForeground(Theme.CYAN); h.setAlignmentX(LEFT_ALIGNMENT);
         h.setBorder(new EmptyBorder(0, 0, 8, 0));
-        wikiContent.add(h);
+        wikiLinked.add(h);
         if (kids.isEmpty()) {
             JLabel none = new JLabel("no child nodes");
             none.setForeground(Theme.MUTED); none.setFont(Theme.MONO_SM); none.setAlignmentX(LEFT_ALIGNMENT);
-            wikiContent.add(none);
+            wikiLinked.add(none);
         } else {
             for (Node c : kids) {
                 JComponent link = wikiLink(c);
                 link.setAlignmentX(LEFT_ALIGNMENT);
-                wikiContent.add(link);
-                wikiContent.add(Box.createVerticalStrut(5));
+                wikiLinked.add(link);
+                wikiLinked.add(Box.createVerticalStrut(5));
             }
         }
-        wikiContent.add(Box.createVerticalGlue());
-        wikiContent.revalidate();
-        wikiContent.repaint();
+        wikiLinked.add(Box.createVerticalGlue());
+        wikiLinked.revalidate();
+        wikiLinked.repaint();
+    }
+
+    private JButton mdButton(String text, Runnable action) {
+        JButton b = Theme.button(text, Theme.PURPLE, false);
+        b.setFont(Theme.MONO_SM);
+        b.addActionListener(e -> action.run());
+        return b;
     }
 
 
@@ -236,9 +341,115 @@ final class MindMapPanel extends JPanel {
 
     private void onNotesChanged(int id) {
         scheduleSave();
-        canvas.repaint();                                  // refresh the note dot
+        canvas.repaint();
         if (overlayNotes != null) overlayNotes.refreshIfShowing(id);
-        if (wikiNotes != null) wikiNotes.refreshIfShowing(id);
+        // keep the wiki read view in sync if it is showing this node
+        if (!wikiEditing && wikiNodeId != null && wikiNodeId == id) {
+            Node n = byId(id);
+            if (n != null) buildWikiContent(n);
+        }
+    }
+
+    // =================== shared markdown helpers (notes overlay + wiki page) ===================
+    private static final java.util.regex.Pattern MD_NUM = java.util.regex.Pattern.compile("^(\\d+)\\. ");
+
+    private static int mdLineStart(String text, int caret) {
+        int i = text.lastIndexOf('\n', Math.max(0, caret - 1));
+        return i < 0 ? 0 : i + 1;
+    }
+    private static String mdMarkerOf(String line) {
+        if (line.startsWith("- ")) return "- ";
+        if (line.length() >= 4 && line.charAt(0) == '[' && line.charAt(2) == ']' && line.charAt(3) == ' ')
+            return line.substring(0, 4);            // "[ ] " or "[x] "
+        java.util.regex.Matcher m = MD_NUM.matcher(line);
+        if (m.find()) return m.group();             // "3. "
+        return null;
+    }
+    private static String mdNextMarker(String marker) {
+        if (marker.startsWith("-")) return "- ";
+        if (marker.startsWith("[")) return "[ ] ";
+        java.util.regex.Matcher m = MD_NUM.matcher(marker);
+        if (m.find()) return (Integer.parseInt(m.group(1)) + 1) + ". ";
+        return "";
+    }
+    private static boolean mdSameKind(String a, String b) {
+        return (a.startsWith("-") && b.startsWith("-"))
+            || (a.startsWith("[") && b.startsWith("["))
+            || (Character.isDigit(a.charAt(0)) && Character.isDigit(b.charAt(0)));
+    }
+    /** Toggle/replace a list marker on the current line of the given editor. */
+    private static void mdInsertMarker(JTextArea area, String marker) {
+        String text = area.getText();
+        int caret = area.getCaretPosition();
+        int ls = mdLineStart(text, caret);
+        int le = text.indexOf('\n', caret); if (le < 0) le = text.length();
+        String existing = mdMarkerOf(text.substring(ls, le));
+        try {
+            if (existing != null) area.getDocument().remove(ls, existing.length());
+            if (existing == null || !mdSameKind(existing, marker))
+                area.getDocument().insertString(ls, marker, null);
+        } catch (javax.swing.text.BadLocationException ex) { /* ignore */ }
+        area.requestFocusInWindow();
+    }
+    /** Enter inside a list continues it; empty item ends it; otherwise plain newline. */
+    private static void mdHandleEnter(JTextArea area) {
+        if (!area.isEditable()) return;
+        String text = area.getText();
+        int caret = area.getCaretPosition();
+        int ls = mdLineStart(text, caret);
+        int le = text.indexOf('\n', caret); if (le < 0) le = text.length();
+        String marker = mdMarkerOf(text.substring(ls, le));
+        if (marker == null) { area.replaceSelection("\n"); return; }
+        if (text.substring(ls, le).substring(marker.length()).trim().isEmpty()) {
+            try { area.getDocument().remove(ls, marker.length()); }
+            catch (javax.swing.text.BadLocationException ex) { }
+            return;
+        }
+        area.replaceSelection("\n" + mdNextMarker(marker));
+    }
+    private static void mdInsertLinePrefix(JTextArea area, String prefix) {
+        int ls = mdLineStart(area.getText(), area.getCaretPosition());
+        try { area.getDocument().insertString(ls, prefix, null); } catch (javax.swing.text.BadLocationException ex) {}
+        area.requestFocusInWindow();
+    }
+    private static void mdWrapBold(JTextArea area) {
+        String sel = area.getSelectedText();
+        if (sel != null && !sel.isEmpty()) area.replaceSelection("**" + sel + "**");
+        else { int pos = area.getCaretPosition(); area.insert("****", pos); area.setCaretPosition(pos + 2); }
+        area.requestFocusInWindow();
+    }
+    /** Renders our light markdown (headings, bold, lists) to styled HTML. */
+    private static String mdRenderHtml(String md) {
+        String fam = Theme.MONO.getFamily();
+        StringBuilder b = new StringBuilder();
+        b.append("<html><head><style>")
+         .append("body{font-family:'").append(fam).append("',monospace;color:#d8d2ea;font-size:13px;margin:0;padding:0;}")
+         .append("h1{color:#00f0ff;font-size:19px;margin:12px 0 6px 0;}")
+         .append("h2{color:#00f0ff;font-size:16px;margin:10px 0 5px 0;}")
+         .append("h3{color:#b537f2;font-size:14px;margin:9px 0 4px 0;}")
+         .append("b{color:#ffffff;}")
+         .append(".li{margin:1px 0 1px 16px;}")
+         .append("</style></head><body>");
+        if (md == null || md.isEmpty()) {
+            b.append("<div style=\"color:#7a7290;\">No notes yet - press Edit to add.</div>");
+        } else {
+            for (String line : md.split("\n", -1)) {
+                if (line.startsWith("### "))     b.append("<h3>").append(mdInline(mdEsc(line.substring(4)))).append("</h3>");
+                else if (line.startsWith("## ")) b.append("<h2>").append(mdInline(mdEsc(line.substring(3)))).append("</h2>");
+                else if (line.startsWith("# "))  b.append("<h1>").append(mdInline(mdEsc(line.substring(2)))).append("</h1>");
+                else if (mdMarkerOf(line) != null) b.append("<div class=\"li\">").append(mdInline(mdEsc(line))).append("</div>");
+                else if (line.isEmpty())         b.append("<div>&nbsp;</div>");
+                else                             b.append("<div>").append(mdInline(mdEsc(line))).append("</div>");
+            }
+        }
+        b.append("</body></html>");
+        return b.toString();
+    }
+    private static String mdEsc(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+    private static String mdInline(String s) {
+        return s.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");
     }
 
     /** Reusable notes display: read-only text with an Edit/Done toggle button. */
@@ -254,7 +465,6 @@ final class MindMapPanel extends JPanel {
         private final JButton editBtn = Theme.button("Edit", Theme.CYAN, false);
         private final JLabel head = new JLabel();
         private final JPanel listBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        private final java.util.regex.Pattern NUM_MARK = java.util.regex.Pattern.compile("^(\\d+)\\. ");
         private final String baseTitle;
 
         NotesView(String baseTitle) {
@@ -273,8 +483,8 @@ final class MindMapPanel extends JPanel {
             // list toolbar (only visible while editing)
             listBar.setBackground(new Color(0x120829));
             listBar.setBorder(new EmptyBorder(3, 8, 3, 8));
-            listBar.add(actionButton("# Heading", () -> insertLinePrefix("# ")));
-            listBar.add(actionButton("Bold", this::wrapBold));
+            listBar.add(actionButton("# Heading", () -> { if (editing) mdInsertLinePrefix(area, "# "); }));
+            listBar.add(actionButton("Bold", () -> { if (editing) mdWrapBold(area); }));
             listBar.add(listButton("- List", "- "));
             listBar.add(listButton("1. List", "1. "));
             listBar.add(listButton("[ ] Task", "[ ] "));
@@ -292,7 +502,7 @@ final class MindMapPanel extends JPanel {
             // Enter: a plain line break (or continues a list) — never commits
             area.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "listEnter");
             area.getActionMap().put("listEnter", new AbstractAction() {
-                public void actionPerformed(ActionEvent e) { handleEnter(); }
+                public void actionPerformed(ActionEvent e) { if (editing) mdHandleEnter(area); }
             });
             JScrollPane editScroll = new JScrollPane(area);
             editScroll.setBorder(null);
@@ -327,7 +537,7 @@ final class MindMapPanel extends JPanel {
         private JButton listButton(String text, String marker) {
             JButton b = Theme.button(text, Theme.PURPLE, false);
             b.setFont(Theme.MONO_SM);
-            b.addActionListener(e -> insertMarker(marker));
+            b.addActionListener(e -> { if (editing) mdInsertMarker(area, marker); });
             return b;
         }
         private JButton actionButton(String text, Runnable action) {
@@ -343,7 +553,7 @@ final class MindMapPanel extends JPanel {
             head.setText(baseTitle + (n != null && n.label != null && !n.label.isEmpty() ? "  -  " + n.label : ""));
             editBtn.setText("Edit");
             listBar.setVisible(false);
-            view.setText(renderHtml(n == null ? "" : n.notes));   // rendered markdown
+            view.setText(mdRenderHtml(n == null ? "" : n.notes));   // rendered markdown
             view.setCaretPosition(0);
             bodyCards.show(body, "read");
         }
@@ -370,112 +580,8 @@ final class MindMapPanel extends JPanel {
             }
         }
 
-        // ---- edit-mode toolbar actions ----
-        private void insertLinePrefix(String prefix) {
-            if (!editing) return;
-            int ls = lineStart(area.getText(), area.getCaretPosition());
-            try { area.getDocument().insertString(ls, prefix, null); } catch (javax.swing.text.BadLocationException ex) {}
-            area.requestFocusInWindow();
-        }
-        private void wrapBold() {
-            if (!editing) return;
-            String sel = area.getSelectedText();
-            if (sel != null && !sel.isEmpty()) area.replaceSelection("**" + sel + "**");
-            else { int pos = area.getCaretPosition(); area.insert("****", pos); area.setCaretPosition(pos + 2); }
-            area.requestFocusInWindow();
-        }
-
-        // ---- markdown -> HTML for the read view ----
-        private String renderHtml(String md) {
-            String fam = Theme.MONO.getFamily();
-            StringBuilder b = new StringBuilder();
-            b.append("<html><head><style>")
-             .append("body{font-family:'").append(fam).append("',monospace;color:#d8d2ea;font-size:13px;margin:0;padding:0;}")
-             .append("h1{color:#00f0ff;font-size:19px;margin:12px 0 6px 0;}")
-             .append("h2{color:#00f0ff;font-size:16px;margin:10px 0 5px 0;}")
-             .append("h3{color:#b537f2;font-size:14px;margin:9px 0 4px 0;}")
-             .append("b{color:#ffffff;}")
-             .append(".li{margin:1px 0 1px 16px;}")
-             .append("</style></head><body>");
-            if (md == null || md.isEmpty()) {
-                b.append("<div style=\"color:#7a7290;\">No notes yet - press Edit to add.</div>");
-            } else {
-                for (String line : md.split("\n", -1)) {
-                    if (line.startsWith("### "))     b.append("<h3>").append(inline(esc(line.substring(4)))).append("</h3>");
-                    else if (line.startsWith("## ")) b.append("<h2>").append(inline(esc(line.substring(3)))).append("</h2>");
-                    else if (line.startsWith("# "))  b.append("<h1>").append(inline(esc(line.substring(2)))).append("</h1>");
-                    else if (markerOf(line) != null) b.append("<div class=\"li\">").append(inline(esc(line))).append("</div>");
-                    else if (line.isEmpty())         b.append("<div>&nbsp;</div>");
-                    else                             b.append("<div>").append(inline(esc(line))).append("</div>");
-                }
-            }
-            b.append("</body></html>");
-            return b.toString();
-        }
-        private String esc(String s) {
-            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        }
-        private String inline(String s) {
-            return s.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");
-        }
-
         void refreshIfShowing(Integer id) {
             if (!editing && Objects.equals(id, nodeId)) show(id);
-        }
-
-        // ---- list support ----
-        private int lineStart(String text, int caret) {
-            int i = text.lastIndexOf('\n', Math.max(0, caret - 1));
-            return i < 0 ? 0 : i + 1;
-        }
-        private String markerOf(String line) {
-            if (line.startsWith("- ")) return "- ";
-            if (line.length() >= 4 && line.charAt(0) == '[' && line.charAt(2) == ']' && line.charAt(3) == ' ')
-                return line.substring(0, 4);            // "[ ] " or "[x] "
-            java.util.regex.Matcher m = NUM_MARK.matcher(line);
-            if (m.find()) return m.group();             // "3. "
-            return null;
-        }
-        private String nextMarker(String marker) {
-            if (marker.startsWith("-")) return "- ";
-            if (marker.startsWith("[")) return "[ ] ";
-            java.util.regex.Matcher m = NUM_MARK.matcher(marker);
-            if (m.find()) return (Integer.parseInt(m.group(1)) + 1) + ". ";
-            return "";
-        }
-        private boolean sameKind(String a, String b) {
-            return (a.startsWith("-") && b.startsWith("-"))
-                || (a.startsWith("[") && b.startsWith("["))
-                || (Character.isDigit(a.charAt(0)) && Character.isDigit(b.charAt(0)));
-        }
-        private void insertMarker(String marker) {
-            if (!editing) return;
-            String text = area.getText();
-            int caret = area.getCaretPosition();
-            int ls = lineStart(text, caret);
-            int le = text.indexOf('\n', caret); if (le < 0) le = text.length();
-            String existing = markerOf(text.substring(ls, le));
-            try {
-                if (existing != null) area.getDocument().remove(ls, existing.length());   // toggle / replace
-                if (existing == null || !sameKind(existing, marker))
-                    area.getDocument().insertString(ls, marker, null);
-            } catch (javax.swing.text.BadLocationException ex) { /* ignore */ }
-            area.requestFocusInWindow();
-        }
-        private void handleEnter() {
-            if (!editing) return;
-            String text = area.getText();
-            int caret = area.getCaretPosition();
-            int ls = lineStart(text, caret);
-            int le = text.indexOf('\n', caret); if (le < 0) le = text.length();
-            String marker = markerOf(text.substring(ls, le));
-            if (marker == null) { area.replaceSelection("\n"); return; }          // plain line break
-            if (text.substring(ls, le).substring(marker.length()).trim().isEmpty()) {
-                try { area.getDocument().remove(ls, marker.length()); }           // empty item -> end list
-                catch (javax.swing.text.BadLocationException ex) { }
-                return;
-            }
-            area.replaceSelection("\n" + nextMarker(marker));                     // continue the list
         }
     }
 
@@ -857,6 +963,13 @@ final class MindMapPanel extends JPanel {
         if (nodes.isEmpty()) return;
         Node n = nodes.get(0);
         n.notes = "# Overview\nInventor is a **crafting** profession.\n\nRole:\n- Builds gadgets\n- Researches tech\n\nSteps:\n1. Gather parts\n2. Assemble\n\nTasks:\n[ ] Prototype\n[x] Test passed";
+        openWiki(n.id);
+    }
+    void debugSampleWikiEdit() { debugSampleWiki(); wikiToggleEdit(); }   // wiki edit mode on sample notes
+    void debugEmptyWiki() {     // wiki read mode on a node with no notes (in-memory only)
+        if (nodes.isEmpty()) return;
+        Node n = nodes.get(0);
+        n.notes = "";
         openWiki(n.id);
     }
 
