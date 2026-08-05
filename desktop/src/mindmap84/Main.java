@@ -9,6 +9,7 @@ import javax.swing.border.*;
 public final class Main {
 
     public static void main(String[] args) {
+        NeonScrollBarUI.install();      // themed scrollbars everywhere
         for (String a : args) {
             if (a.equals("--selftest")) { System.exit(selfTest() ? 0 : 1); return; }
             if (a.equals("--guitest"))  { System.exit(guiTest() ? 0 : 1); return; }
@@ -178,6 +179,67 @@ public final class Main {
         }
     }
 
+    /** Round-trips a mindmap (via a real temp file), a checklist, and a datalist through Md. */
+    private static boolean mdRoundTrip() {
+        try {
+            java.util.List<MindMapPanel.Node> in = new java.util.ArrayList<>();
+            in.add(mkNode(1, "Alpha Root", "#6600ff", null,
+                "# Overview\nSome **bold** text here.\n\n- bullet one\n- bullet two\n\n1. first\n2. second"));
+            in.add(mkNode(2, "Beta Child", "#ff2d95", 1, ""));
+            in.add(mkNode(3, "Gamma Leaf", "#39ff14", 2,
+                "tricky lines:\n<!--84:/notes-->\n\\<!--84:notes-->\ndone"));
+            in.add(mkNode(4, "Delta Root", "#00f0ff", null, ""));
+
+            String md = Md.writeMindmap(in);
+            java.nio.file.Path tmp = java.nio.file.Files.createTempFile("mm84-roundtrip", ".md");
+            java.nio.file.Files.write(tmp, md.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            String back = new String(java.nio.file.Files.readAllBytes(tmp), java.nio.charset.StandardCharsets.UTF_8);
+            java.nio.file.Files.deleteIfExists(tmp);
+
+            java.util.List<MindMapPanel.Node> out = Md.parseMindmap(back);
+            if (out == null || out.size() != in.size()) return false;
+            java.util.Map<Integer, MindMapPanel.Node> ai = new java.util.HashMap<>(), bi = new java.util.HashMap<>();
+            for (MindMapPanel.Node n : in) ai.put(n.id, n);
+            for (MindMapPanel.Node n : out) bi.put(n.id, n);
+            for (int i = 0; i < in.size(); i++) {          // parser emits pre-order, same as input
+                MindMapPanel.Node a = in.get(i), b = out.get(i);
+                if (!a.label.equals(b.label) || !a.color.equals(b.color) || !a.notes.equals(b.notes)) return false;
+                if ((a.parent == null) != (b.parent == null)) return false;
+                if (a.parent != null && !ai.get(a.parent).label.equals(bi.get(b.parent).label)) return false;
+            }
+            // a plain document must be rejected gracefully, not crash
+            if (Md.parseMindmap("# just a plain document\nhello") != null) return false;
+
+            java.util.List<ChecklistPanel.Group> cg = new java.util.ArrayList<>();
+            ChecklistPanel.Group cgr = new ChecklistPanel.Group("Fruit");
+            ChecklistPanel.Item ci1 = new ChecklistPanel.Item("Apples"); ci1.done = true;
+            cgr.items.add(ci1); cgr.items.add(new ChecklistPanel.Item("Bananas"));
+            cg.add(cgr);
+            java.util.List<ChecklistPanel.Group> cback = Md.parseChecklist(Md.writeChecklist(cg));
+            if (cback == null || cback.size() != 1 || cback.get(0).items.size() != 2
+                || !cback.get(0).items.get(0).done || cback.get(0).items.get(1).done
+                || !"Bananas".equals(cback.get(0).items.get(1).text)) return false;
+
+            java.util.List<DatalistPanel.Group> dg = new java.util.ArrayList<>();
+            DatalistPanel.Group dgr = new DatalistPanel.Group("Bosses");
+            dgr.items.add(new DatalistPanel.Item("Meta Knight", "dodge the tornado"));
+            dgr.items.add(new DatalistPanel.Item("King Dedede", ""));
+            dg.add(dgr);
+            java.util.List<DatalistPanel.Group> dback = Md.parseDatalist(Md.writeDatalist(dg));
+            if (dback == null || dback.size() != 1 || dback.get(0).items.size() != 2
+                || !"dodge the tornado".equals(dback.get(0).items.get(0).desc)
+                || !"King Dedede".equals(dback.get(0).items.get(1).text)) return false;
+
+            return true;
+        } catch (Exception e) { e.printStackTrace(); return false; }
+    }
+
+    private static MindMapPanel.Node mkNode(int id, String label, String color, Integer parent, String notes) {
+        MindMapPanel.Node n = new MindMapPanel.Node();
+        n.id = id; n.label = label; n.color = color; n.parent = parent; n.notes = notes;
+        return n;
+    }
+
     private static void paintOffscreen(JComponent panel) {
         JFrame fr = new JFrame();
         fr.setContentPane(panel);
@@ -242,6 +304,9 @@ public final class Main {
             + "{\"name\":\"MINDMAP84-windows.zip\",\"browser_download_url\":\"https://x/app.zip\"}]}";
         Updater.Release rel = Updater.parseReleaseJson(sample);
         ok &= rel != null && "1.2.0".equals(rel.version) && "https://x/app.zip".equals(rel.zipUrl);
+
+        // markdown export/import round trips (mindmap file goes through a real temp file)
+        ok &= mdRoundTrip();
 
         System.out.println("selftest: " + (ok ? "PASS" : "FAIL"));
         System.out.println("data dir: " + Store.dir());

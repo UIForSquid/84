@@ -77,7 +77,7 @@ final class DatalistPanel extends JPanel {
         row.add(gen); row.add(add); row.add(purge);
         top.add(row);
 
-        JLabel hint = new JLabel("<html>Same headers as checklists. Add a description after a colon &mdash; e.g. Meta Knight : dodge the tornado. Items keep their order and are numbered.</html>");
+        JLabel hint = new JLabel("<html>Same headers as checklists. Add a description after a colon - e.g. Meta Knight : dodge the tornado. Items keep their order and are numbered.</html>");
         hint.setFont(Theme.MONO_SM); hint.setForeground(Theme.MUTED); hint.setAlignmentX(LEFT_ALIGNMENT);
         hint.setBorder(new EmptyBorder(0, 0, 10, 0));
         top.add(hint);
@@ -86,15 +86,15 @@ final class DatalistPanel extends JPanel {
         meta.setBackground(Theme.VOID); meta.setAlignmentX(LEFT_ALIGNMENT);
         count.setFont(Theme.HEAD); count.setForeground(Theme.AMBER);
         meta.add(count);
-        JButton save = Theme.button("Save", Theme.CYAN, false);
-        JButton loadB = Theme.button("Load", Theme.CYAN, false);
+        JButton exp = Theme.button("Export MD", Theme.CYAN, false);
+        JButton imp = Theme.button("Import MD", Theme.CYAN, false);
         JButton expand = Theme.button("Expand", Theme.CYAN, false);
         JButton collapse = Theme.button("Collapse", Theme.CYAN, false);
-        save.addActionListener(e -> saveNow(true));
-        loadB.addActionListener(e -> { load(); render(); say("Loaded " + total() + " items", Theme.LIME); });
+        exp.addActionListener(e -> exportMd());
+        imp.addActionListener(e -> importMd());
         expand.addActionListener(e -> { for (Group g : groups) g.collapsed = false; render(); });
         collapse.addActionListener(e -> { for (Group g : groups) g.collapsed = true; render(); });
-        meta.add(save); meta.add(loadB); meta.add(expand); meta.add(collapse);
+        meta.add(exp); meta.add(imp); meta.add(expand); meta.add(collapse);
         top.add(meta);
 
         status.setFont(Theme.MONO_SM); status.setForeground(Theme.MUTED); status.setAlignmentX(LEFT_ALIGNMENT);
@@ -236,6 +236,35 @@ final class DatalistPanel extends JPanel {
 
     private static String escapeHtml(String s) {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    // ---- markdown export / import ----
+    private void exportMd() {
+        java.io.File f = Md.chooseSave(this, "datalist");
+        if (f == null) return;
+        boolean ok = Md.writeFile(f, Md.writeDatalist(groups));
+        say(ok ? "Exported " + f.getName() : "Export failed", ok ? Theme.LIME : Theme.MAGENTA);
+    }
+    private void importMd() {
+        java.io.File f = Md.chooseOpen(this);
+        if (f == null) return;
+        String text = Md.readFile(f);
+        List<Group> parsed = text == null ? null : Md.parseDatalist(text);
+        if (parsed == null) {
+            JOptionPane.showMessageDialog(this, "Could not read that file as a datalist.",
+                    "Import MD", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        int r = JOptionPane.showOptionDialog(this,
+                "Importing will replace your current datalist (" + total() + " items).",
+                "Import MD", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE,
+                null, new Object[] { "Import", "Cancel" }, "Cancel");
+        if (r != 0) return;
+        groups.clear();
+        groups.addAll(parsed);
+        render();
+        scheduleSave();
+        say("Imported " + total() + " items", Theme.LIME);
     }
 
     // ---- persistence ----

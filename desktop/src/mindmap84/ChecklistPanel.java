@@ -90,7 +90,7 @@ final class ChecklistPanel extends JPanel {
         row.add(gen); row.add(add); row.add(purge);
         top.add(row);
 
-        JLabel hint = new JLabel("<html>A line is a group header if it starts/ends with = _ | ~ &mdash; e.g. === Fruit ===. Items are comma-separated.</html>");
+        JLabel hint = new JLabel("<html>A line is a group header if it starts/ends with = _ | ~ - e.g. === Fruit ===. Items are comma-separated.</html>");
         hint.setFont(Theme.MONO_SM);
         hint.setForeground(Theme.MUTED);
         hint.setAlignmentX(LEFT_ALIGNMENT);
@@ -103,18 +103,18 @@ final class ChecklistPanel extends JPanel {
         count.setFont(Theme.HEAD);
         count.setForeground(Theme.AMBER);
         meta.add(count);
-        JButton save = Theme.button("Save", Theme.CYAN, false);
-        JButton loadB = Theme.button("Load", Theme.CYAN, false);
+        JButton exp = Theme.button("Export MD", Theme.CYAN, false);
+        JButton imp = Theme.button("Import MD", Theme.CYAN, false);
         JButton expand = Theme.button("Expand", Theme.CYAN, false);
         JButton collapse = Theme.button("Collapse", Theme.CYAN, false);
         JButton reset = Theme.button("Reset", Theme.CYAN, false);
-        save.addActionListener(e -> saveNow(true));
-        loadB.addActionListener(e -> { load(); render(); say("Loaded " + total() + " items", Theme.LIME); });
+        exp.addActionListener(e -> exportMd());
+        imp.addActionListener(e -> importMd());
         expand.addActionListener(e -> { for (Group g : groups) g.collapsed = false; render(); });
         collapse.addActionListener(e -> { for (Group g : groups) g.collapsed = true; render(); });
         reset.addActionListener(e -> { for (Group g : groups) for (Item it : g.items) it.done = false; render(); scheduleSave(); });
         hideBtn.addActionListener(e -> { hideDone = !hideDone; hideBtn.setText(hideDone ? "Show Done" : "Hide Done"); render(); });
-        meta.add(save); meta.add(loadB); meta.add(hideBtn); meta.add(expand); meta.add(collapse); meta.add(reset);
+        meta.add(exp); meta.add(imp); meta.add(hideBtn); meta.add(expand); meta.add(collapse); meta.add(reset);
         top.add(meta);
 
         bar.setForeground(Theme.MAGENTA);
@@ -254,6 +254,35 @@ final class ChecklistPanel extends JPanel {
         bar.setValue(t > 0 ? (int) Math.round(d * 100.0 / t) : 0);
         body.revalidate();
         body.repaint();
+    }
+
+    // ---- markdown export / import ----
+    private void exportMd() {
+        java.io.File f = Md.chooseSave(this, "checklist");
+        if (f == null) return;
+        boolean ok = Md.writeFile(f, Md.writeChecklist(groups));
+        say(ok ? "Exported " + f.getName() : "Export failed", ok ? Theme.LIME : Theme.MAGENTA);
+    }
+    private void importMd() {
+        java.io.File f = Md.chooseOpen(this);
+        if (f == null) return;
+        String text = Md.readFile(f);
+        List<Group> parsed = text == null ? null : Md.parseChecklist(text);
+        if (parsed == null) {
+            JOptionPane.showMessageDialog(this, "Could not read that file as a checklist.",
+                    "Import MD", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        int r = JOptionPane.showOptionDialog(this,
+                "Importing will replace your current checklist (" + total() + " items).",
+                "Import MD", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE,
+                null, new Object[] { "Import", "Cancel" }, "Cancel");
+        if (r != 0) return;
+        groups.clear();
+        groups.addAll(parsed);
+        render();
+        scheduleSave();
+        say("Imported " + total() + " items", Theme.LIME);
     }
 
     // ---- persistence ----

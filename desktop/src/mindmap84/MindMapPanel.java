@@ -739,11 +739,11 @@ final class MindMapPanel extends JPanel {
         JPanel row = new JPanel(new GridLayout(1, 2, 6, 0));
         row.setBackground(Theme.PANEL);
         row.setAlignmentX(LEFT_ALIGNMENT);
-        JButton save = Theme.button("Save", Theme.CYAN, false);
-        JButton loadB = Theme.button("Load", Theme.CYAN, false);
-        save.addActionListener(e -> { saveNow(true); });
-        loadB.addActionListener(e -> { load(); centerOn(nodes.isEmpty() ? null : nodes.get(0)); refreshInspector(); rebuildTree(); canvas.repaint(); say("Loaded " + nodes.size() + " nodes", Theme.LIME); });
-        row.add(save); row.add(loadB);
+        JButton exp = Theme.button("Export MD", Theme.CYAN, false);
+        JButton imp = Theme.button("Import MD", Theme.CYAN, false);
+        exp.addActionListener(e -> exportMd());
+        imp.addActionListener(e -> importMd());
+        row.add(exp); row.add(imp);
 
         status.setFont(Theme.MONO_SM);
         status.setForeground(Theme.MUTED);
@@ -945,6 +945,71 @@ final class MindMapPanel extends JPanel {
     private void say(String msg, Color c) {
         status.setText(msg);
         status.setForeground(c);
+    }
+
+    // =================== markdown export / import ===================
+    private void exportMd() {
+        String name = "mindmap";
+        for (Node n : nodes) if (n.parent == null) { name = Md.safeFileName(n.label, "mindmap"); break; }
+        java.io.File f = Md.chooseSave(this, name);
+        if (f == null) return;
+        boolean ok = Md.writeFile(f, Md.writeMindmap(nodes));
+        say(ok ? "Exported " + f.getName() : "Export failed", ok ? Theme.LIME : Theme.MAGENTA);
+    }
+
+    private void importMd() {
+        java.io.File f = Md.chooseOpen(this);
+        if (f == null) return;
+        String text = Md.readFile(f);
+        List<Node> parsed = text == null ? null : Md.parseMindmap(text);
+        if (parsed == null) {
+            JOptionPane.showMessageDialog(this, "Could not read that file as a mind map.",
+                    "Import MD", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        int r = JOptionPane.showOptionDialog(this,
+                "Importing will replace your current mind map (" + nodes.size() + " nodes).",
+                "Import MD", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE,
+                null, new Object[] { "Import", "Cancel" }, "Cancel");
+        if (r != 0) return;
+
+        canvas.cancelNameEdit();
+        nodes.clear();
+        wob.clear();
+        nodes.addAll(parsed);
+        int maxId = 0;
+        for (Node n : nodes) maxId = Math.max(maxId, n.id);
+        seq = maxId + 1;
+        layoutImported();
+        selected = null;
+        wikiNodeId = null;
+        wikiEditing = false;
+        viewCards.show(centerCards, "map");
+        selectNode(null);                       // clears inspector + overlay, rebuilds tree
+        centerOn(nodes.isEmpty() ? null : nodes.get(0));
+        scheduleSave();
+        say("Imported " + nodes.size() + " nodes", Theme.LIME);
+    }
+
+    /** Places imported nodes (no stored positions) using the same math addNode uses. */
+    private void layoutImported() {
+        Point2D c = screenToWorld(canvas.getWidth() / 2.0, canvas.getHeight() / 2.0);
+        Map<Integer, Integer> placedKids = new HashMap<>();   // parent id -> children placed so far
+        int roots = 0;
+        for (Node n : nodes) {                  // pre-order from the parser: parents come first
+            if (n.parent == null) {
+                n.x = c.getX() + roots * 260;
+                n.y = c.getY();
+                roots++;
+            } else {
+                Node p = byId(n.parent);
+                int sibs = placedKids.merge(n.parent, 1, Integer::sum) - 1;
+                double ang = (sibs * 0.9) - 1.2;
+                double dist = radiusOf(p) + 90;
+                n.x = p.x + Math.cos(ang) * dist;
+                n.y = p.y + Math.sin(ang) * dist;
+            }
+        }
     }
 
     // =================== persistence ===================
