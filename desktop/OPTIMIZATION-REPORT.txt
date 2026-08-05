@@ -1,0 +1,175 @@
+MINDMAP//84 OPTIMIZATION REPORT
+Run date: 2026-08-04 (unattended)
+
+VERSION
+  0.1.8 -> 0.1.9  (Config.java, build.ps1, build.sh all in sync)
+
+BASELINE (verified before any change)
+  - selftest PASS, guitest PASS on the untouched tree.
+  - dist/MINDMAP84:      81,798,221 bytes
+  - MINDMAP84-windows.zip: 27,220,437 bytes
+  - Paint benchmark (scratchpad-only harness, not in the app): offscreen
+    mp.paint() of the real user map at 1240x780, 300 frames after 30 warmup,
+    3 runs: 4.865 / 4.839 / 4.873 ms per frame  (avg ~4.86 ms)
+
+CHANGES MADE (each compiled + selftest + guitest + byte-compared before the next)
+
+1. MindMapPanel.Canvas.paintComponent - background cache  [allowlist 2]
+   The gradient + city skyline + grid floor are now painted once into a
+   TYPE_INT_RGB BufferedImage (fields bgCache/bgW/bgH) and blitted each frame;
+   regenerated only when the canvas size changes. drawCity/drawGridFloor are
+   unchanged and now only run on resize. Behavior-preserving: same draw calls,
+   same order, same hints, onto the same opaque base; verified byte-identical.
+
+2. MindMapPanel - hoisted per-frame allocations  [allowlist 1]
+   - EDGE_STROKE, NODE_STROKE, NODE_STROKE_SEL (BasicStroke), NODE_BORDER,
+     CAPTION_BG, BG_BOTTOM (Color), GLOW_AC (AlphaComposite) are now static
+     finals with values identical to the former inline constructions
+     (2f/(float)1 == 2f).
+   - edgeColorCache: node color string -> its 140-alpha edge Color, instead of
+     a new Color per edge per frame.
+   - dotIconCache: sidebar dot Icons cached per color. The icon is a stateless
+     painter, so sharing instances across labels cannot change rendering.
+     (rebuildTree runs per label keystroke, so this is a per-keystroke path.)
+
+3. MindMapPanel.Canvas - per-frame index maps  [allowlist 8 + 9]
+   paintComponent now builds a local HashMap<id,Node> once per frame (edges no
+   longer call the O(n) byId per edge), and computeRadii() computes every node
+   radius in one O(n) pass (children grouped once, descendant counts memoized)
+   instead of radiusOf's O(n) subtree scan per node per frame (O(n^2) total).
+   Same formula: BASE_R + (MAX_R-BASE_R)*(1-(1-STEP)^N), +4 for roots.
+   drawNode is private; it now receives the radius as a parameter. The maps are
+   local to the paint call, so no staleness is possible. radiusOf/subtreeCount
+   remain for non-paint paths (hitTest, addNode, deleteSelected).
+
+4. MindMapPanel.Canvas - viewport culling  [allowlist 5]
+   The visible area in world coordinates, padded by 300 world units on every
+   side, is computed per frame. Nodes whose center is outside it are skipped;
+   edges are skipped only when the segment fails Rectangle2D.intersectsLine
+   against the padded rect (an exact segment test - an edge crossing the view
+   with both endpoints offscreen is still drawn). 300 units is far larger than
+   the largest node + glow + caption (~160), so partially-visible drawing can
+   never be culled. Verified byte-identical on the real map, which has
+   offscreen nodes.
+
+5. MindMapPanel - wobble timer paused while canvas hidden  [allowlist 7]
+   The 30fps wobble Timer previously ran forever, repainting the canvas even
+   when the Checklist/Datalist tab or the wiki page was in front. A
+   HierarchyListener on the canvas now starts the timer when the canvas becomes
+   showing and stops it when hidden. While visible, tick rate and increment are
+   unchanged, so the animation looks identical.
+
+6. MindMapPanel.NotesView.show - markdown render skip  [allowlist 9]
+   show() re-rendered notes markdown to HTML and reset the JEditorPane document
+   on every call. Label keystrokes refresh the overlay via refreshIfShowing with
+   unchanged notes, so this was a per-keystroke re-render. It now skips
+   setText when (nodeId, notes) equal the previously rendered pair.
+   setCaretPosition(0) still runs unconditionally, so the scroll-to-top side
+   effect of the old code is preserved exactly.
+
+7. Dead code removed  [allowlist 10]
+   - Theme.DEEP: unused everywhere outside its declaration (verified by grep).
+   - MindMapPanel.centerLayered: written once, never read.
+
+8. Store.java  [allowlist 4] - NO CHANGE NEEDED
+   Already whole-file Files.write / Files.readAllBytes; nothing unbuffered.
+
+9. String concatenation in loops  [allowlist 3] - NO CHANGE NEEDED
+   Json.write and the markdown renderer already use StringBuilder throughout.
+
+ATTEMPTED AND REVERTED
+
+- jlink --compress zip-6 (with --strip-debug --strip-native-commands
+  --no-header-files --no-man-pages) via --jlink-options  [allowlist 11].
+  It built and passed selftest/guitest/nettest, and shrank dist/ from
+  81,798,221 to 51,784,796 bytes (-37%). BUT the release zip GREW from
+  27,220,437 to 34,485,635 bytes (+27%), because the pre-compressed modules
+  file no longer compresses inside the outer zip - and that zip is exactly
+  what the auto-updater downloads. Ruling: genuine tradeoff (smaller disk vs
+  larger download + unmeasured class-load decompression cost), so per the
+  "uncertain -> skip and report" rule I reverted it. Decide and re-add the
+  single --jlink-options line to both build scripts if you prefer smaller
+  on-disk size. Note the four strip/no-* flags alone are already jpackage's
+  defaults, so adding them without --compress changes nothing.
+
+CONSIDERED, OUTSIDE ALLOWLIST OR FORBIDDEN - NOT DONE
+
+- rebuildTree() runs on EVERY label keystroke and rebuilds the entire sidebar
+  tree (all rows, panels, listeners). The dotIcon cache trims allocation, but
+  the real fix is updating just the affected row's text - that is a component-
+  hierarchy/behavior change, forbidden here. This is the biggest remaining
+  per-keystroke cost.
+- buildWikiContent() constructs a fresh JEditorPane per wiki open/toggle;
+  reusing one would be a restructure. Left alone.
+- RadialGradientPaint per node per frame in drawNode: position- and radius-
+  dependent, so it cannot be hoisted without changing rendering; a cache keyed
+  by (color, radius, position) would be unbounded. Left alone.
+- Scoped repaint(x,y,w,h) [allowlist 6]: every candidate call site (selection
+  change, hover change, drag) affects the old + new node areas plus captions;
+  the wobble timer repaints the full canvas anyway while visible. No site had
+  an unambiguous dirty region, so per the allowlist's own condition none were
+  narrowed.
+- Trimming --add-modules [allowlist 12]: java.desktop and java.net.http are
+  clearly required. jdk.crypto.ec is possibly redundant on modern JDKs (EC
+  crypto largely merged into java.base), but the only real proof is a live
+  TLS handshake with GitHub, which --nettest does not perform (it only
+  constructs an HttpClient/SSLContext). Removing it could silently break
+  Check for Updates. Conservative: kept.
+- MindMapPanel.wob (wobble phase map) entries for deleted nodes are never
+  removed except on load/import (wob.clear()). Harmless-scale leak; cleaning
+  it touches delete semantics, so left alone and noted.
+
+TEST HARNESS CHANGES (not optimizations - needed for the required verification)
+  - Main --render: mode arg refactored to a String; new modes "still"
+    (deterministic zero-amplitude wobble for byte-reproducible map renders),
+    "checklist", "datalist" (render those panels; none existed before).
+  - MindMapPanel.debugStillWobble(): test hook backing "still".
+  These run only under --render/--guitest and change no user-facing behavior.
+
+MEASURED RESULTS
+  - Paint benchmark, same harness/commands as baseline, after all changes:
+    3.765 / 3.690 / 3.742 ms per frame (avg ~3.73 ms) -> ~23% faster per frame
+    on the fully-visible map. (Culling adds nothing in this view since most
+    nodes are onscreen; its benefit appears when zoomed/panned away, and the
+    wobble-timer pause eliminates 30fps repaints entirely on other tabs -
+    neither of those is captured by this benchmark.)
+  - NOT measured (no instrumentation available headlessly): keystroke latency
+    in the label field, wiki open time, timer-pause CPU savings. The wins there
+    are argued from call-path analysis above, not from numbers.
+
+FINAL SIZES (compression reverted, so effectively unchanged; deltas are the
+version-string difference baked into the launcher/config)
+  - dist/MINDMAP84:        81,798,221 -> 81,800,628 bytes
+  - MINDMAP84-windows.zip: 27,220,437 -> 27,222,901 bytes
+
+FINAL VERIFICATION
+  - selftest PASS and guitest PASS - from the source tree AND from the packaged
+    MINDMAP84.exe; nettest ok from the packaged exe.
+  - All five renders byte-identical to baseline (cmp, exit 0 on all):
+      still (map canvas), sample (wiki read), sampleedit (wiki edit),
+      checklist, datalist
+    Commands: java -cp out mindmap84.Main --render <png> <mode>
+    Baselines + finals kept in the session scratchpad under opt/.
+  - Each individual change was also byte-compared in isolation before the next
+    change was stacked on top; all matched on first try, nothing was reverted
+    for a rendering difference.
+
+THINGS THAT LOOKED WRONG (unrelated to this task, untouched)
+  1. MindMapPanel.load() does not call rebuildTree()/refreshInspector() itself;
+     callers do. The constructor path is fine, but any future caller could
+     desync the sidebar. Fragile pattern, not a bug today.
+  2. ChecklistPanel/DatalistPanel.saveNow(boolean loud) - the loud=true branch
+     is now unreachable since the Save buttons were replaced by Export MD in
+     0.1.8 (autosave always passes false). Dead-ish branch, but removing it
+     changes a method signature used symmetrically across panels; left for a
+     deliberate cleanup.
+  3. The Purge confirmation in both list panels still says "Your saved copy
+     stays until you save again" - misleading since 0.1.8: autosave commits the
+     purge ~500ms later. User-facing text change, so out of scope here, but the
+     wording now overpromises safety.
+  4. Node.notes and labels are stored unescaped in window titles nowhere, but
+     labels ARE embedded raw in wiki heading lines on MD export; a label that
+     itself starts with "#" survives round-trip (verified by the marker-strip
+     logic), one containing only whitespace becomes empty. Cosmetic.
+
+Working tree left uncommitted for review, as instructed. No tag, no release.

@@ -22,6 +22,17 @@ final class MindMapPanel extends JPanel {
     private int seq = 1;
 
     private static final double BASE_R = 11, MAX_R = 26, STEP = 0.20;
+    private static final Color BG_BOTTOM = new Color(0x1d0b3a);   // bottom of the canvas gradient
+
+    // hoisted per-frame paint constants (identical values to the former inline allocations)
+    private static final BasicStroke EDGE_STROKE     = new BasicStroke(2f);
+    private static final BasicStroke NODE_STROKE     = new BasicStroke(2f);
+    private static final BasicStroke NODE_STROKE_SEL = new BasicStroke(2.4f);
+    private static final Color NODE_BORDER  = new Color(255, 255, 255, 130);
+    private static final Color CAPTION_BG   = new Color(10, 6, 22, 235);
+    private static final AlphaComposite GLOW_AC = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.22f);
+    private final Map<String, Color> edgeColorCache = new HashMap<>();   // node color -> 140-alpha edge color
+    private static final Map<Integer, Icon> dotIconCache = new HashMap<>(); // color rgb -> sidebar dot icon
     private static final String[] PALETTE = {
         "#00f0ff", "#ff2d95", "#b537f2", "#ffb627", "#39ff14", "#ff6b6b", "#4d9fff"
     };
@@ -50,7 +61,6 @@ final class MindMapPanel extends JPanel {
     // the CENTRE swaps between "map" (canvas) and "wiki"; the left sidebar always stays
     private final CardLayout viewCards = new CardLayout();
     private final JPanel centerCards = new JPanel();
-    private JLayeredPane centerLayered;   // holds the canvas + floating notes overlay
     private JPanel overlayPanel;          // bottom-centre notes overlay (read-only + Edit)
     private NotesView overlayNotes;       // notes editor inside the overlay
     private JPanel wikiContent;           // wiki page centre column, rebuilt per node
@@ -82,9 +92,14 @@ final class MindMapPanel extends JPanel {
         add(centerCards, BorderLayout.CENTER);
         viewCards.show(centerCards, "map");
 
-        // ambient wobble ~30fps
-        Timer anim = new Timer(33, e -> { animTime += 0.033; canvas.repaint(); });
-        anim.start();
+        // ambient wobble ~30fps - runs only while the canvas is actually showing
+        // (paused on the wiki page or when another tab is selected)
+        final Timer anim = new Timer(33, e -> { animTime += 0.033; canvas.repaint(); });
+        canvas.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                if (canvas.isShowing()) anim.start(); else anim.stop();
+            }
+        });
 
         load();
         if (nodes.isEmpty()) {
@@ -116,7 +131,6 @@ final class MindMapPanel extends JPanel {
         overlayPanel = buildOverlay();
         overlayPanel.setVisible(false);
         lp.add(overlayPanel, JLayeredPane.PALETTE_LAYER);
-        centerLayered = lp;
         return lp;
     }
 
@@ -553,10 +567,19 @@ final class MindMapPanel extends JPanel {
             head.setText(baseTitle + (n != null && n.label != null && !n.label.isEmpty() ? "  -  " + n.label : ""));
             editBtn.setText("Edit");
             listBar.setVisible(false);
-            view.setText(mdRenderHtml(n == null ? "" : n.notes));   // rendered markdown
-            view.setCaretPosition(0);
+            // re-render the markdown only when the source actually changed
+            // (label keystrokes refresh this view with identical notes)
+            String notes = n == null || n.notes == null ? "" : n.notes;
+            if (!Objects.equals(id, lastRenderId) || !notes.equals(lastRenderNotes)) {
+                view.setText(mdRenderHtml(notes));
+                lastRenderId = id;
+                lastRenderNotes = notes;
+            }
+            view.setCaretPosition(0);            // always reset scroll, as before
             bodyCards.show(body, "read");
         }
+        private Integer lastRenderId = null;
+        private String lastRenderNotes = null;
 
         private void toggle() {
             if (nodeId == null) return;
@@ -766,9 +789,9 @@ final class MindMapPanel extends JPanel {
         return side;
     }
 
-    /** A small filled circle icon, vertically centered against label text. */
+    /** A small filled circle icon, vertically centered against label text. Cached per color (stateless painter). */
     private static Icon dotIcon(final Color c) {
-        return new Icon() {
+        return dotIconCache.computeIfAbsent(c.getRGB(), k -> new Icon() {
             public int getIconWidth() { return 11; }
             public int getIconHeight() { return 11; }
             public void paintIcon(Component comp, Graphics g, int x, int y) {
@@ -778,7 +801,7 @@ final class MindMapPanel extends JPanel {
                 g2.fillOval(x + 1, y + 1, 9, 9);
                 g2.dispose();
             }
-        };
+        });
     }
 
     private void rebuildTree() {
@@ -1031,6 +1054,9 @@ final class MindMapPanel extends JPanel {
         openWiki(n.id);
     }
     void debugSampleWikiEdit() { debugSampleWiki(); wikiToggleEdit(); }   // wiki edit mode on sample notes
+    void debugStillWobble() {   // zero-amplitude wobble so offscreen renders are byte-reproducible
+        for (Node n : nodes) wob.put(n.id, new double[] { 0, 0, 0, 0 });
+    }
     void debugEmptyWiki() {     // wiki read mode on a node with no notes (in-memory only)
         if (nodes.isEmpty()) return;
         Node n = nodes.get(0);
@@ -1243,36 +1269,93 @@ final class MindMapPanel extends JPanel {
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
             int w = getWidth(), h = getHeight();
-            // background gradient
-            g.setPaint(new GradientPaint(0, 0, Theme.VOID, 0, h, new Color(0x1d0b3a)));
-            g.fillRect(0, 0, w, h);
-            drawCity(g, w, h);
-            drawGridFloor(g, w, h);
+            // static background (gradient + skyline + grid floor) cached per size
+            if (bgCache == null || bgW != w || bgH != h) {
+                bgCache = new java.awt.image.BufferedImage(Math.max(1, w), Math.max(1, h),
+                        java.awt.image.BufferedImage.TYPE_INT_RGB);
+                Graphics2D bg = bgCache.createGraphics();
+                bg.setPaint(new GradientPaint(0, 0, Theme.VOID, 0, h, BG_BOTTOM));
+                bg.fillRect(0, 0, w, h);
+                drawCity(bg, w, h);
+                drawGridFloor(bg, w, h);
+                bg.dispose();
+                bgW = w; bgH = h;
+            }
+            g.drawImage(bgCache, 0, 0, null);
 
             Graphics2D world = (Graphics2D) g.create();
             world.translate(viewX, viewY);
             world.scale(scale, scale);
 
+            // per-frame indexes: id lookup and radii computed once instead of per node
+            Map<Integer, Node> idx = new HashMap<>();
+            for (Node n : nodes) idx.put(n.id, n);
+            Map<Integer, Double> radii = computeRadii(idx);
+
+            // visible area in world coordinates, padded well past the largest
+            // node + glow + caption so partially-visible drawing is never culled
+            double cullPad = 300;
+            Rectangle2D.Double view = new Rectangle2D.Double(
+                (0 - viewX) / scale - cullPad, (0 - viewY) / scale - cullPad,
+                w / scale + cullPad * 2, h / scale + cullPad * 2);
+
             // edges
+            world.setStroke(EDGE_STROKE);
             for (Node n : nodes) {
                 if (n.parent == null) continue;
-                Node p = byId(n.parent);
+                Node p = idx.get(n.parent);
                 if (p == null) continue;
                 double[] po = wobbleOffset(p), no = wobbleOffset(n);
-                Color c = Theme.hex(n.color);
-                world.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 140));
-                world.setStroke(new BasicStroke(2f / (float) 1));
-                world.draw(new Line2D.Double(p.x + po[0], p.y + po[1], n.x + no[0], n.y + no[1]));
+                double x1 = p.x + po[0], y1 = p.y + po[1], x2 = n.x + no[0], y2 = n.y + no[1];
+                if (!view.intersectsLine(x1, y1, x2, y2)) continue;   // fully offscreen
+                world.setColor(edgeColorCache.computeIfAbsent(n.color, k -> {
+                    Color c = Theme.hex(k);
+                    return new Color(c.getRed(), c.getGreen(), c.getBlue(), 140);
+                }));
+                world.draw(new Line2D.Double(x1, y1, x2, y2));
             }
 
             // nodes
             for (Node n : nodes) {
                 double[] o = wobbleOffset(n);
-                drawNode(world, n, n.x + o[0], n.y + o[1]);
+                double cx = n.x + o[0], cy = n.y + o[1];
+                if (!view.contains(cx, cy)) continue;                 // fully offscreen
+                drawNode(world, n, cx, cy, radii.get(n.id));
             }
             world.dispose();
             g.dispose();
         }
+
+        /** All node radii in one O(n) pass - same formula as radiusOf, just not per-node-per-frame. */
+        private Map<Integer, Double> computeRadii(Map<Integer, Node> idx) {
+            Map<Integer, List<Node>> kids = new HashMap<>();
+            for (Node n : nodes)
+                if (n.parent != null && idx.containsKey(n.parent))
+                    kids.computeIfAbsent(n.parent, k -> new ArrayList<>()).add(n);
+            Map<Integer, Integer> desc = new HashMap<>();
+            for (Node n : nodes) descCount(n, kids, desc);
+            Map<Integer, Double> out = new HashMap<>();
+            for (Node n : nodes) {
+                int N = desc.get(n.id);
+                double r = BASE_R + (MAX_R - BASE_R) * (1 - Math.pow(1 - STEP, N));
+                if (n.parent == null) r += 4;
+                out.put(n.id, r);
+            }
+            return out;
+        }
+        private int descCount(Node n, Map<Integer, List<Node>> kids, Map<Integer, Integer> memo) {
+            Integer m = memo.get(n.id);
+            if (m != null) return m;
+            int total = 0;
+            List<Node> cs = kids.get(n.id);
+            if (cs != null) for (Node c : cs) total += 1 + descCount(c, kids, memo);
+            memo.put(n.id, total);
+            return total;
+        }
+
+        // cached background image (gradient + skyline + grid), regenerated on resize
+        private java.awt.image.BufferedImage bgCache;
+        private int bgW = -1, bgH = -1;
 
         // cached skyline (regenerated only when width changes, so it doesn't flicker)
         private int cityW = -1;
@@ -1347,14 +1430,13 @@ final class MindMapPanel extends JPanel {
             g.dispose();
         }
 
-        private void drawNode(Graphics2D g, Node n, double cx, double cy) {
-            double r = radiusOf(n);
+        private void drawNode(Graphics2D g, Node n, double cx, double cy, double r) {
             Color base = Theme.hex(n.color);
             Ellipse2D circle = new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2);
 
             // glow
             Composite old = g.getComposite();
-            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.22f));
+            g.setComposite(GLOW_AC);
             g.setColor(base);
             double gr = r + 6;
             g.fill(new Ellipse2D.Double(cx - gr, cy - gr, gr * 2, gr * 2));
@@ -1369,8 +1451,8 @@ final class MindMapPanel extends JPanel {
 
             // border
             boolean sel = selected != null && selected == n.id;
-            g.setStroke(new BasicStroke(sel ? 2.4f : 2f));
-            g.setColor(sel ? Color.WHITE : new Color(255, 255, 255, 130));
+            g.setStroke(sel ? NODE_STROKE_SEL : NODE_STROKE);
+            g.setColor(sel ? Color.WHITE : NODE_BORDER);
             g.draw(circle);
 
             boolean show = sel || (hovered != null && hovered == n.id);
@@ -1383,7 +1465,7 @@ final class MindMapPanel extends JPanel {
                 int tw = Math.min(fm.stringWidth(txt), 220);
                 int pad = 7, ch = fm.getHeight() + 4;
                 double bx = cx - (tw + pad * 2) / 2.0, by = cy + r + 6;
-                g.setColor(new Color(10, 6, 22, 235));
+                g.setColor(CAPTION_BG);
                 g.fill(new RoundRectangle2D.Double(bx, by, tw + pad * 2, ch, 6, 6));
                 g.setColor(Theme.LINE);
                 g.draw(new RoundRectangle2D.Double(bx, by, tw + pad * 2, ch, 6, 6));

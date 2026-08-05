@@ -20,20 +20,28 @@ public final class Main {
                     final String path = args.length > 1 ? args[1] : "mindmap-preview.png";
                     SwingUtilities.invokeAndWait(() -> {
                         try {
-                            MindMapPanel mp = new MindMapPanel();
+                            String mode = args.length > 2 ? args[2] : "";
+                            JComponent panel;
+                            if (mode.equals("checklist")) panel = new ChecklistPanel();
+                            else if (mode.equals("datalist")) panel = new DatalistPanel();
+                            else {
+                                MindMapPanel mp = new MindMapPanel();
+                                if (mode.equals("edit")) mp.debugStartNameEdit();
+                                if (mode.equals("overlay")) mp.debugSelectFirst();
+                                if (mode.equals("wiki")) mp.debugOpenFirstWiki();
+                                if (mode.equals("sample")) mp.debugSampleWiki();
+                                if (mode.equals("sampleedit")) mp.debugSampleWikiEdit();
+                                if (mode.equals("empty")) mp.debugEmptyWiki();
+                                if (mode.equals("still")) mp.debugStillWobble();   // deterministic pixels
+                                panel = mp;
+                            }
                             JFrame fr = new JFrame();
-                            fr.setContentPane(mp); fr.setSize(1240, 820); fr.addNotify(); fr.validate();
-                            mp.setSize(1240, 780); mp.doLayout();
-                            if (args.length > 2 && args[2].equals("edit")) mp.debugStartNameEdit();
-                            if (args.length > 2 && args[2].equals("overlay")) mp.debugSelectFirst();
-                            if (args.length > 2 && args[2].equals("wiki")) mp.debugOpenFirstWiki();
-                            if (args.length > 2 && args[2].equals("sample")) mp.debugSampleWiki();
-                            if (args.length > 2 && args[2].equals("sampleedit")) mp.debugSampleWikiEdit();
-                            if (args.length > 2 && args[2].equals("empty")) mp.debugEmptyWiki();
-                            mp.invalidate(); mp.validate();   // full recursive layout before paint
+                            fr.setContentPane(panel); fr.setSize(1240, 820); fr.addNotify(); fr.validate();
+                            panel.setSize(1240, 780); panel.doLayout();
+                            panel.invalidate(); panel.validate();   // full recursive layout before paint
                             java.awt.image.BufferedImage img =
                                 new java.awt.image.BufferedImage(1240, 780, java.awt.image.BufferedImage.TYPE_INT_ARGB);
-                            Graphics2D g = img.createGraphics(); mp.paint(g); g.dispose();
+                            Graphics2D g = img.createGraphics(); panel.paint(g); g.dispose();
                             javax.imageio.ImageIO.write(img, "png", new java.io.File(path));
                             fr.dispose();
                             System.out.println("wrote " + path);

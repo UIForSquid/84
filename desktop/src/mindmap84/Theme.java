@@ -7,7 +7,6 @@ import javax.swing.border.*;
 /** Shared 80s-neon look: colors, fonts, and styled button factory. */
 final class Theme {
     static final Color VOID    = new Color(0x0a0616);
-    static final Color DEEP    = new Color(0x150b2e);
     static final Color PANEL   = new Color(0x1c0e3a);
     static final Color LINE    = new Color(0x3d2a6b);
     static final Color INK     = new Color(0xe8e3ff);
