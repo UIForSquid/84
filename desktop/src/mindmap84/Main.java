@@ -33,6 +33,7 @@ public final class Main {
                                 if (mode.equals("sampleedit")) mp.debugSampleWikiEdit();
                                 if (mode.equals("empty")) mp.debugEmptyWiki();
                                 if (mode.equals("still")) mp.debugStillWobble();   // deterministic pixels
+                                if (mode.equals("multi")) mp.debugMultiSelect(4);
                                 panel = mp;
                             }
                             JFrame fr = new JFrame();
@@ -197,6 +198,9 @@ public final class Main {
             in.add(mkNode(3, "Gamma Leaf", "#39ff14", 2,
                 "tricky lines:\n<!--84:/notes-->\n\\<!--84:notes-->\ndone"));
             in.add(mkNode(4, "Delta Root", "#00f0ff", null, ""));
+            // canvas positions, including negatives (the canvas has no origin bound)
+            double[][] pos = { {120, -340}, {-45, 900}, {0, 0}, {1875, 62} };
+            for (int i = 0; i < in.size(); i++) { in.get(i).x = pos[i][0]; in.get(i).y = pos[i][1]; }
 
             String md = Md.writeMindmap(in);
             java.nio.file.Path tmp = java.nio.file.Files.createTempFile("mm84-roundtrip", ".md");
@@ -214,9 +218,24 @@ public final class Main {
                 if (!a.label.equals(b.label) || !a.color.equals(b.color) || !a.notes.equals(b.notes)) return false;
                 if ((a.parent == null) != (b.parent == null)) return false;
                 if (a.parent != null && !ai.get(a.parent).label.equals(bi.get(b.parent).label)) return false;
+                if (a.x != b.x || a.y != b.y) return false;          // positions survive exactly
             }
             // a plain document must be rejected gracefully, not crash
             if (Md.parseMindmap("# just a plain document\nhello") != null) return false;
+
+            // legacy files (no @x,y) must still import, flagged NaN for auto-layout
+            java.util.List<MindMapPanel.Node> legacy = Md.parseMindmap(
+                "<!--84:mindmap v1-->\n\n<!--84:node d0 #00f0ff-->\n# Root\n");
+            if (legacy == null || legacy.size() != 1
+                || !Double.isNaN(legacy.get(0).x) || !Double.isNaN(legacy.get(0).y)) return false;
+
+            // a file mixing positioned and unpositioned nodes must parse both ways
+            java.util.List<MindMapPanel.Node> mixed = Md.parseMindmap(
+                "<!--84:mindmap v1-->\n\n<!--84:node d0 #00f0ff @10,20-->\n# A\n"
+              + "\n<!--84:node d1 #ff2d95-->\n## B\n");
+            if (mixed == null || mixed.size() != 2
+                || mixed.get(0).x != 10 || mixed.get(0).y != 20
+                || !Double.isNaN(mixed.get(1).x)) return false;
 
             java.util.List<ChecklistPanel.Group> cg = new java.util.ArrayList<>();
             ChecklistPanel.Group cgr = new ChecklistPanel.Group("Fruit");
@@ -304,6 +323,8 @@ public final class Main {
         ok &= Updater.isNewer("1.0.10", "1.0.2");
         ok &= !Updater.isNewer("1.0.0", "1.0.0");
         ok &= !Updater.isNewer("1.0.0", "1.2.0");
+        ok &= Updater.isNewer("0.1.10", "0.1.9");   // two-digit patch must beat single digit
+        ok &= !Updater.isNewer("0.1.9", "0.1.10");
         ok &= "1.0.0".equals(Updater.stripV("v1.0.0"));
 
         // parse a GitHub release payload -> version + zip asset url

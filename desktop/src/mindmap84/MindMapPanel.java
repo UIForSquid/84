@@ -18,7 +18,8 @@ final class MindMapPanel extends JPanel {
     }
 
     private final List<Node> nodes = new ArrayList<>();
-    private Integer selected = null;
+    private Integer selected = null;                              // primary selection (drives inspector/wiki)
+    private final Set<Integer> multi = new LinkedHashSet<>();     // every selected id, incl. the primary
     private int seq = 1;
 
     private static final double BASE_R = 11, MAX_R = 26, STEP = 0.20;
@@ -196,6 +197,7 @@ final class MindMapPanel extends JPanel {
     private void openWiki(int id) {
         Node n = byId(id); if (n == null) return;
         selected = id;
+        multi.clear(); multi.add(id);          // opening a page is a single selection
         wikiNodeId = id;
         wikiEditing = false;
         refreshInspector();
@@ -704,6 +706,7 @@ final class MindMapPanel extends JPanel {
             stack.addAll(childrenOf(c.id));
         }
         nodes.removeIf(x -> remove.contains(x.id));
+        multi.removeAll(remove);                       // drop deleted ids from the selection
         if (selected != null && remove.contains(selected)) selectNode(null);
         rebuildTree();
         scheduleSave();
@@ -711,11 +714,32 @@ final class MindMapPanel extends JPanel {
     }
 
     private void selectNode(Integer id) {
+        multi.clear();
+        if (id != null) multi.add(id);
         selected = id;
         refreshInspector();
         rebuildTree();
         if (overlayPanel != null) {
             if (id != null) { overlayNotes.show(id); overlayPanel.setVisible(true); }
+            else overlayPanel.setVisible(false);
+        }
+        canvas.repaint();
+    }
+
+    /** Shift-click: add the node to the selection, or remove it if already selected. */
+    private void toggleSelect(Integer id) {
+        if (id == null) return;
+        if (multi.remove(id)) {
+            if (Objects.equals(selected, id))                 // primary left the set
+                selected = multi.isEmpty() ? null : multi.iterator().next();
+        } else {
+            multi.add(id);
+            selected = id;                                    // newest click becomes primary
+        }
+        refreshInspector();
+        rebuildTree();
+        if (overlayPanel != null) {
+            if (selected != null) { overlayNotes.show(selected); overlayPanel.setVisible(true); }
             else overlayPanel.setVisible(false);
         }
         canvas.repaint();
@@ -822,7 +846,7 @@ final class MindMapPanel extends JPanel {
     }
     private void addTreeRows(Node n, int depth) {
         JPanel rowP = new JPanel(new BorderLayout());
-        rowP.setBackground(selected != null && selected == n.id ? new Color(0x2a1550) : Theme.PANEL);
+        rowP.setBackground(multi.contains(n.id) ? new Color(0x2a1550) : Theme.PANEL);
         rowP.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
         rowP.setBorder(new EmptyBorder(3, 10 + depth * 14, 3, 8));
 
@@ -1020,6 +1044,7 @@ final class MindMapPanel extends JPanel {
         Map<Integer, Integer> placedKids = new HashMap<>();   // parent id -> children placed so far
         int roots = 0;
         for (Node n : nodes) {                  // pre-order from the parser: parents come first
+            if (!Double.isNaN(n.x) && !Double.isNaN(n.y)) continue;   // position came from the file
             if (n.parent == null) {
                 n.x = c.getX() + roots * 260;
                 n.y = c.getY();
@@ -1032,6 +1057,13 @@ final class MindMapPanel extends JPanel {
                 n.x = p.x + Math.cos(ang) * dist;
                 n.y = p.y + Math.sin(ang) * dist;
             }
+        }
+        // safety net: a parent that was itself auto-placed can leave a child NaN-free
+        // but off in space; nothing to fix there. Any node still NaN (parent missing)
+        // is dropped onto the centre so it can never render at an undefined point.
+        for (Node n : nodes) {
+            if (Double.isNaN(n.x)) n.x = c.getX();
+            if (Double.isNaN(n.y)) n.y = c.getY();
         }
     }
 
@@ -1056,6 +1088,12 @@ final class MindMapPanel extends JPanel {
     void debugSampleWikiEdit() { debugSampleWiki(); wikiToggleEdit(); }   // wiki edit mode on sample notes
     void debugStillWobble() {   // zero-amplitude wobble so offscreen renders are byte-reproducible
         for (Node n : nodes) wob.put(n.id, new double[] { 0, 0, 0, 0 });
+    }
+    void debugMultiSelect(int count) {   // select the first `count` nodes, as shift-clicking would
+        debugStillWobble();
+        multi.clear();
+        for (Node n : nodes) { if (multi.size() >= count) break; multi.add(n.id); selected = n.id; }
+        refreshInspector(); rebuildTree(); canvas.repaint();
     }
     void debugEmptyWiki() {     // wiki read mode on a node with no notes (in-memory only)
         if (nodes.isEmpty()) return;
@@ -1116,6 +1154,7 @@ final class MindMapPanel extends JPanel {
             seq = (int) Json.asNum(root.get("seq"), maxId + 1);
             if (seq <= maxId) seq = maxId + 1;
             selected = null;
+            multi.clear();
         } catch (Exception e) {
             System.err.println("mindmap load failed: " + e);
         }
@@ -1126,6 +1165,8 @@ final class MindMapPanel extends JPanel {
         private double dragStartX, dragStartY, nodeOX, nodeOY, vOX, vOY;
         private boolean movedDrag = false;
         private boolean panning = false;
+        // node id -> position when the drag started (one entry per node being moved)
+        private final Map<Integer, double[]> dragOrigins = new LinkedHashMap<>();
 
         // inline node-name editor (double-click / new node)
         private final JTextField nameEditor = new JTextField();
@@ -1165,9 +1206,20 @@ final class MindMapPanel extends JPanel {
                     Node hit = hitTest(w.getX(), w.getY());
                     movedDrag = false;
                     dragStartX = e.getX(); dragStartY = e.getY();
+                    dragOrigins.clear();
                     if (hit != null) {
                         draggingId = hit.id;
                         nodeOX = hit.x; nodeOY = hit.y;
+                        // dragging a selected node moves the whole selection;
+                        // dragging an unselected one moves just that node
+                        if (multi.contains(hit.id)) {
+                            for (Integer id : multi) {
+                                Node n = byId(id);
+                                if (n != null) dragOrigins.put(id, new double[] { n.x, n.y });
+                            }
+                        } else {
+                            dragOrigins.put(hit.id, new double[] { hit.x, hit.y });
+                        }
                         panning = false;
                     } else {
                         panning = true;
@@ -1179,9 +1231,13 @@ final class MindMapPanel extends JPanel {
                     double dx = e.getX() - dragStartX, dy = e.getY() - dragStartY;
                     if (Math.abs(dx) + Math.abs(dy) > 3) movedDrag = true;
                     if (draggingId != null) {
-                        Node n = byId(draggingId); if (n == null) return;
-                        n.x = nodeOX + dx / scale;
-                        n.y = nodeOY + dy / scale;
+                        double wdx = dx / scale, wdy = dy / scale;
+                        for (Map.Entry<Integer, double[]> en : dragOrigins.entrySet()) {
+                            Node n = byId(en.getKey());
+                            if (n == null) continue;
+                            n.x = en.getValue()[0] + wdx;
+                            n.y = en.getValue()[1] + wdy;
+                        }
                         repaint();
                     } else if (panning) {
                         viewX = vOX + dx; viewY = vOY + dy;
@@ -1191,11 +1247,14 @@ final class MindMapPanel extends JPanel {
                 public void mouseReleased(MouseEvent e) {
                     setCursor(Cursor.getDefaultCursor());
                     if (draggingId != null) {
-                        if (!movedDrag) selectNode(draggingId);
-                        else { rebuildTree(); scheduleSave(); }
+                        if (!movedDrag) {
+                            if (e.isShiftDown()) toggleSelect(draggingId);   // shift-click multi-select
+                            else selectNode(draggingId);
+                        } else { rebuildTree(); scheduleSave(); }
                         draggingId = null;
+                        dragOrigins.clear();
                     } else if (panning) {
-                        if (!movedDrag) selectNode(null);
+                        if (!movedDrag && !e.isShiftDown()) selectNode(null); // shift on empty keeps selection
                         panning = false;
                     }
                     repaint();
@@ -1450,7 +1509,7 @@ final class MindMapPanel extends JPanel {
             g.fill(circle);
 
             // border
-            boolean sel = selected != null && selected == n.id;
+            boolean sel = multi.contains(n.id);
             g.setStroke(sel ? NODE_STROKE_SEL : NODE_STROKE);
             g.setColor(sel ? Color.WHITE : NODE_BORDER);
             g.draw(circle);

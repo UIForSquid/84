@@ -43,7 +43,12 @@ final class Md {
 
     private static void writeMindmapNode(StringBuilder b, List<MindMapPanel.Node> all, MindMapPanel.Node n, int depth) {
         b.append('\n').append("<!--84:node d").append(depth).append(' ')
-         .append(n.color == null ? "#00f0ff" : n.color).append("-->\n");
+         .append(n.color == null ? "#00f0ff" : n.color);
+        // canvas position, rounded to whole units (sub-pixel precision is not meaningful);
+        // omitted when unknown so the importer falls back to auto-layout
+        if (!Double.isNaN(n.x) && !Double.isNaN(n.y))
+            b.append(" @").append(Math.round(n.x)).append(',').append(Math.round(n.y));
+        b.append("-->\n");
         int hashes = Math.min(depth + 1, 6);
         for (int i = 0; i < hashes; i++) b.append('#');
         b.append(' ').append(n.label == null ? "" : n.label).append('\n');
@@ -68,7 +73,10 @@ final class Md {
             Map<Integer, MindMapPanel.Node> lastAtDepth = new HashMap<>();
             MindMapPanel.Node cur = null;
             int nextId = 1;
-            Pattern nodeP = Pattern.compile("^<!--84:node d(\\d+) (#[0-9a-fA-F]{6})-->$");
+            // position suffix "@x,y" is optional: files written before positions were
+            // stored (or hand-authored ones) still import and get auto-laid-out
+            Pattern nodeP = Pattern.compile(
+                "^<!--84:node d(\\d+) (#[0-9a-fA-F]{6})(?: @(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?))?-->$");
             Pattern headP = Pattern.compile("^(#{1,6}) ?(.*)$");
 
             while (i < lines.length) {
@@ -86,6 +94,13 @@ final class Md {
                     n.label = hm.group(2);
                     n.color = m.group(2).toLowerCase();
                     n.notes = "";
+                    if (m.group(3) != null) {                  // stored position
+                        n.x = Double.parseDouble(m.group(3));
+                        n.y = Double.parseDouble(m.group(4));
+                    } else {                                   // NaN = "needs auto-layout"
+                        n.x = Double.NaN;
+                        n.y = Double.NaN;
+                    }
                     if (d == 0) n.parent = null;
                     else {
                         MindMapPanel.Node p = lastAtDepth.get(d - 1);
